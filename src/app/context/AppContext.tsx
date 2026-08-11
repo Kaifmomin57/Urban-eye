@@ -9,7 +9,7 @@ import {
 import { auth, db, googleProvider, githubProvider } from "../lib/firebase";
 import { getOrCreateUserProfile, UserProfile, updateUserProfile } from "../lib/userService";
 import { logActivity, subscribeToActivities, UserActivity } from "../lib/activityService";
-import { Issue } from "../data/mockData";
+import { Issue, ISSUES } from "../data/mockData";
 
 type ThemeName = "default" | "blue-steel";
 
@@ -38,7 +38,7 @@ const AppContext = createContext<AppContextType | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issues, setIssues] = useState<Issue[]>(ISSUES);
   const [activities, setActivities] = useState<UserActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<ThemeName>(() => {
@@ -68,16 +68,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        setFirebaseUser(fbUser);
-        const profile = await getOrCreateUserProfile(fbUser);
-        setUser(profile);
-      } else {
-        setFirebaseUser(null);
-        setUser(null);
-        setActivities([]);
+      try {
+        if (fbUser) {
+          setFirebaseUser(fbUser);
+          const profile = await getOrCreateUserProfile(fbUser);
+          setUser(profile);
+        } else {
+          setFirebaseUser(null);
+          setUser(null);
+          setActivities([]);
+        }
+      } catch (err) {
+        console.warn("Auth state error:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsub;
   }, []);
@@ -85,9 +90,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Subscribe to issues
   useEffect(() => {
     const q = query(collection(db, "issues"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      setIssues(snap.docs.map(d => ({ id: d.id, ...d.data() } as Issue)));
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() } as Issue));
+        if (fetched.length > 0) {
+          setIssues(fetched);
+        } else {
+          setIssues(ISSUES);
+        }
+      },
+      (error) => {
+        console.warn("Firestore access restricted for issues, using mock data:", error);
+        setIssues(ISSUES);
+      }
+    );
     return unsub;
   }, []);
 
@@ -115,77 +132,102 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function addIssue(issue: Omit<Issue, "id">) {
     if (!user) return;
-    const docRef = await addDoc(collection(db, "issues"), {
-      ...issue,
-      reportedBy: user.uid,
-      reportedByName: user.name,
-      createdAt: serverTimestamp()
-    });
+    const tempId = `issue-${Date.now()}`;
+    const newIssue: Issue = { ...issue, id: tempId };
+    setIssues(prev => [newIssue, ...prev]);
+
     const newPoints = (user.points || 0) + 50;
     const newReportsFiled = (user.reportsFiled || 0) + 1;
-    await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
     setUser(u => u ? { ...u, points: newPoints, reportsFiled: newReportsFiled } : u);
 
-    // Log activity
-    logActivity(user.uid, "issue_reported", `Reported: ${issue.title}`, docRef.id);
+    try {
+      const docRef = await addDoc(collection(db, "issues"), {
+        ...issue,
+        reportedBy: user.uid,
+        reportedByName: user.name,
+        createdAt: serverTimestamp()
+      });
+      await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
+      logActivity(user.uid, "issue_reported", `Reported: ${issue.title}`, docRef.id);
+    } catch (err) {
+      console.warn("Firestore error adding issue:", err);
+    }
   }
 
   // Deletes the issue doc and deducts 50 points from the poster's profile.
   async function deleteIssue(id: string) {
     if (!user) return;
     const issue = issues.find(i => i.id === id);
-    await deleteDoc(doc(db, "issues", id));
+    setIssues(prev => prev.filter(i => i.id !== id));
+
     const newPoints = Math.max(0, (user.points || 0) - 50);
     const newReportsFiled = Math.max(0, (user.reportsFiled || 0) - 1);
-    await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
     setUser(u => u ? { ...u, points: newPoints, reportsFiled: newReportsFiled } : u);
 
-    // Log activity
-    logActivity(user.uid, "issue_deleted", `Deleted: ${issue?.title || "an issue"}`, id);
+    try {
+      await deleteDoc(doc(db, "issues", id));
+      await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
+      logActivity(user.uid, "issue_deleted", `Deleted: ${issue?.title || "an issue"}`, id);
+    } catch (err) {
+      console.warn("Firestore error deleting issue:", err);
+    }
   }
 
   async function upvoteIssue(id: string) {
     if (!user) return;
-    const ref = doc(db, "issues", id);
     const current = issues.find(i => i.id === id);
-    if (current) {
-      await updateDoc(ref, { votes: (current.votes || 0) + 1 });
+    if (!current) return;
 
-      // Log activity
+    setIssues(prev => prev.map(i => i.id === id ? { ...i, votes: (i.votes || 0) + 1 } : i));
+
+    try {
+      const ref = doc(db, "issues", id);
+      await updateDoc(ref, { votes: (current.votes || 0) + 1 });
       logActivity(user.uid, "issue_upvoted", `Upvoted: ${current.title}`, id);
+    } catch (err) {
+      console.warn("Firestore error upvoting issue:", err);
     }
   }
 
   async function updateIssueStatus(id: string, status: Issue["status"]) {
     if (!user) return;
-    await updateDoc(doc(db, "issues", id), { status });
+    setIssues(prev => prev.map(i => i.id === id ? { ...i, status } : i));
     const issue = issues.find(i => i.id === id);
 
-    // Log activity
-    logActivity(user.uid, "status_changed", `Changed status to ${status.replace("_", " ")}: ${issue?.title || "an issue"}`, id);
+    try {
+      await updateDoc(doc(db, "issues", id), { status });
+      logActivity(user.uid, "status_changed", `Changed status to ${status.replace("_", " ")}: ${issue?.title || "an issue"}`, id);
+    } catch (err) {
+      console.warn("Firestore error updating status:", err);
+    }
   }
 
   async function reportFakeIssue(id: string, reason: string) {
-    const ref = doc(db, "issues", id);
     const current = issues.find(i => i.id === id);
-    if (current) {
+    if (!current) return;
+
+    try {
+      const ref = doc(db, "issues", id);
       const reports = (current as any).fakeReports || [];
       await updateDoc(ref, {
         fakeReports: [...reports, { by: user?.uid, reason, at: new Date().toISOString() }]
       });
-
-      // Log activity
       if (user) logActivity(user.uid, "fake_reported", `Reported fake: ${current.title}`, id);
+    } catch (err) {
+      console.warn("Firestore error reporting fake issue:", err);
     }
   }
 
   async function updateProfile(data: { name?: string; photoURL?: string }) {
     if (!user) return;
-    await updateUserProfile(user.uid, data);
     setUser(u => u ? { ...u, ...data } : u);
 
-    // Log activity
-    logActivity(user.uid, "profile_updated", "Updated profile");
+    try {
+      await updateUserProfile(user.uid, data);
+      logActivity(user.uid, "profile_updated", "Updated profile");
+    } catch (err) {
+      console.warn("Firestore error updating profile:", err);
+    }
   }
 
   async function redeemReward(cost: number): Promise<string> {
@@ -193,11 +235,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if ((user.points || 0) < cost) throw new Error("Not enough points to redeem this reward.");
     const code = `URB-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const newPoints = user.points - cost;
-    await updateUserProfile(user.uid, { points: newPoints });
     setUser(u => u ? { ...u, points: newPoints } : u);
 
-    // Log activity
-    logActivity(user.uid, "reward_redeemed", `Redeemed reward for ${cost} points`);
+    try {
+      await updateUserProfile(user.uid, { points: newPoints });
+      logActivity(user.uid, "reward_redeemed", `Redeemed reward for ${cost} points`);
+    } catch (err) {
+      console.warn("Firestore error redeeming reward:", err);
+    }
 
     return code;
   }
