@@ -12,7 +12,6 @@ import { Issue, CATEGORY_COLOR, PRIORITY_COLOR } from "../data/mockData";
 const COLUMNS = [
   { id: "new", label: "New", color: "#64748b", bg: "rgba(100,116,139,0.08)", count_color: "#94a3b8" },
   { id: "in_progress", label: "In Progress", color: "#3b82f6", bg: "rgba(59,130,246,0.08)", count_color: "#60a5fa" },
-  { id: "pending_approval", label: "Pending Citizen Approval", color: "#a855f7", bg: "rgba(168,85,247,0.08)", count_color: "#c084fc" },
   { id: "resolved", label: "Resolved", color: "#10b981", bg: "rgba(16,185,129,0.08)", count_color: "#34d399" },
 ] as const;
 
@@ -253,7 +252,7 @@ export default function Kanban() {
   const normalizeStatus = (status: string): Issue["status"] => {
     const s = (status || "").toLowerCase().replace(/[\s-]/g, "_");
     if (s === "reported" || s === "new") return "new";
-    if (s === "in_progress" || s === "inprogress") return "in_progress";
+    if (s === "in_progress" || s === "inprogress" || s === "pending_approval") return "in_progress";
     if (s === "resolved") return "resolved";
     return "new";
   };

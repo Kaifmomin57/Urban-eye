@@ -106,7 +106,9 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-1">
             {NAV_LINKS.filter((link) => {
               const isAdmin = user?.role === "official" || user?.role === "ward";
+              const isEmployee = user?.role === "field_employee";
               if (link.isAi && !isAdmin) return false;
+              if (isEmployee && (link.href === "/report" || link.href === "/rewards")) return false;
               if (link.href === "/rewards" && isAdmin) return false;
               return true;
             }).map((link) => {
@@ -303,7 +305,7 @@ export default function Navbar() {
                       View profile
                     </Link>
 
-                    {!isAdmin && (
+                    {user?.role !== "official" && user?.role !== "ward" && user?.role !== "field_employee" && (
                       <Link
                         to="/rewards"
                         className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
@@ -368,7 +370,9 @@ export default function Navbar() {
             <div className="px-4 py-3 space-y-1">
               {NAV_LINKS.filter((link) => {
                 const isAdmin = user?.role === "official" || user?.role === "ward";
+                const isEmployee = user?.role === "field_employee";
                 if (link.isAi && !isAdmin) return false;
+                if (isEmployee && (link.href === "/report" || link.href === "/rewards")) return false;
                 if (link.href === "/rewards" && isAdmin) return false;
                 return true;
               }).map((link) => {
