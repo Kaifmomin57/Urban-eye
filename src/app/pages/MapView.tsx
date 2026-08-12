@@ -193,7 +193,7 @@ export default function MapView() {
     filtered.forEach(issue => {
       const [lat, lng] = getIssueCoords(issue);
       const color = categoryColor(issue.category);
-      const isNew = issue.status === "new";
+      const isNew = (issue.status as string) === "new" || (issue.status as string) === "Reported" || (issue.status as string) === "reported";
       const isCritical = issue.priority === "critical";
 
       const icon = L.divIcon({
