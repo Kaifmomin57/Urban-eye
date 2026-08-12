@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
@@ -17,7 +17,8 @@ const COLUMNS = [
 
 const ITEM_TYPE = "ISSUE_CARD";
 
-function IssueCard({ issue, index }: { issue: Issue; index: number }) {
+const IssueCard = forwardRef<HTMLDivElement, { issue: Issue; index: number }>(
+  function IssueCard({ issue, index }, ref) {
   const { upvoteIssue, approveResolution, user } = useApp();
   const [voted, setVoted] = useState(false);
 
@@ -41,7 +42,7 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
 
   return (
     <motion.div
-      ref={isOwner ? (drag as any) : undefined}
+      ref={ref}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: isDragging ? 0.4 : 1, y: 0, scale: isDragging ? 1.02 : 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.97 }}
@@ -163,7 +164,7 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
       </div>
     </motion.div>
   );
-}
+});
 
 function Column({
   col,
