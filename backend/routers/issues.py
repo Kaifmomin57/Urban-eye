@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from database import get_db
 from models import DBIssue, DBNotification, DBActivity
-from schemas import IssueStatusUpdateSchema, IssueAssignTeamSchema, IssueFlagSchema
+from schemas import IssueStatusUpdateSchema, IssueAssignTeamSchema, IssueFlagSchema, ProofSubmitSchema, CitizenApprovalSchema
 from services.ai_service import analyze_issue_with_ai
 from services.websocket_manager import ws_manager
 
@@ -55,6 +55,8 @@ async def get_all_issues(city: Optional[str] = None, db: AsyncSession = Depends(
             "aiRiskAssessment": i.ai_risk_assessment,
             "citizenImpactScore": i.citizen_impact_score or 50,
             "recommendedAction": i.recommended_action,
+            "siteArrivalProof": i.site_arrival_proof,
+            "resolutionProof": i.resolution_proof,
             "createdAt": i.created_at.isoformat() if i.created_at else datetime.utcnow().isoformat(),
             "reportedAt": i.created_at.isoformat() if i.created_at else datetime.utcnow().isoformat()
         })
@@ -325,3 +327,152 @@ async def flag_fake_issue(issue_id: str, payload: IssueFlagSchema, db: AsyncSess
     })
 
     return {"success": True}
+
+
+# ── Upload image for proof (arrival or resolution) ─────────────────────────────
+@router.post("/upload-proof")
+async def upload_proof_image(
+    image: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload an image file and return its URL — used by Employee Portal proof forms."""
+    image_bytes = await image.read()
+    ext = image.filename.split(".")[-1] if image.filename and "." in image.filename else "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(image_bytes)
+    image_url = f"/uploads/{filename}"
+    return {"success": True, "imageUrl": image_url, "url": image_url}
+
+
+# ── Site Arrival Proof ─────────────────────────────────────────────────────────
+@router.patch("/{issue_id}/arrival-proof")
+async def submit_arrival_proof(issue_id: str, payload: ProofSubmitSchema, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    arrived_at = datetime.utcnow().isoformat()
+    proof_data = {
+        "imageUrl": payload.image_url,
+        "lat": payload.lat,
+        "lng": payload.lng,
+        "locationName": payload.location_name or issue.location,
+        "arrivedAt": arrived_at,
+        "arrivedBy": payload.submitted_by or "Field Officer"
+    }
+    issue.site_arrival_proof = proof_data
+    issue.status = "In Progress"
+
+    # Notify reporting citizen
+    notif = DBNotification(
+        user_id=issue.reporter_id or "all",
+        type="status_change",
+        title="🚛 Field Team Arrived at Site",
+        message=f"{payload.submitted_by} has reached the location for '{issue.title}'. Status moved to In Progress.",
+        icon="🚛",
+        issue_id=issue_id
+    )
+    db.add(notif)
+    await db.commit()
+
+    await ws_manager.broadcast({
+        "type": "arrival_proof_submitted",
+        "issue_id": issue_id,
+        "status": "in_progress",
+        "siteArrivalProof": proof_data,
+        "notification": {
+            "id": notif.id, "type": notif.type, "title": notif.title,
+            "message": notif.message, "icon": notif.icon,
+            "issueId": issue_id, "createdAt": notif.created_at.isoformat(), "read": False
+        }
+    })
+
+    return {"success": True, "status": "in_progress", "siteArrivalProof": proof_data}
+
+
+# ── Resolution Proof ───────────────────────────────────────────────────────────
+@router.patch("/{issue_id}/resolution-proof")
+async def submit_resolution_proof(issue_id: str, payload: ProofSubmitSchema, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    resolved_at = datetime.utcnow().isoformat()
+    proof_data = {
+        "imageUrl": payload.image_url,
+        "lat": payload.lat,
+        "lng": payload.lng,
+        "locationName": payload.location_name or issue.location,
+        "resolvedAt": resolved_at,
+        "resolvedBy": payload.submitted_by or "Field Officer",
+        "approvedByCitizen": False
+    }
+    issue.resolution_proof = proof_data
+    issue.status = "Pending Approval"
+
+    notif = DBNotification(
+        user_id=issue.reporter_id or "all",
+        type="status_change",
+        title="⏳ Resolution Proof Submitted — Your Approval Needed",
+        message=f"Field Officer {payload.submitted_by} resolved '{issue.title}'. Please review the proof and confirm.",
+        icon="📸",
+        issue_id=issue_id
+    )
+    db.add(notif)
+    await db.commit()
+
+    await ws_manager.broadcast({
+        "type": "resolution_proof_submitted",
+        "issue_id": issue_id,
+        "status": "pending_approval",
+        "resolutionProof": proof_data,
+        "notification": {
+            "id": notif.id, "type": notif.type, "title": notif.title,
+            "message": notif.message, "icon": notif.icon,
+            "issueId": issue_id, "createdAt": notif.created_at.isoformat(), "read": False
+        }
+    })
+
+    return {"success": True, "status": "pending_approval", "resolutionProof": proof_data}
+
+
+# ── Citizen Approval / Rejection ───────────────────────────────────────────────
+@router.patch("/{issue_id}/citizen-approve")
+async def citizen_approve(issue_id: str, payload: CitizenApprovalSchema, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    new_status = "Resolved" if payload.approved else "In Progress"
+    issue.status = new_status
+
+    # Update approvedByCitizen flag in resolution_proof JSON
+    if issue.resolution_proof:
+        updated_proof = dict(issue.resolution_proof)
+        updated_proof["approvedByCitizen"] = payload.approved
+        issue.resolution_proof = updated_proof
+
+    notif = DBNotification(
+        user_id="all",
+        type="status_change",
+        title="✅ Issue Confirmed Resolved" if payload.approved else "⚠️ Resolution Rejected by Citizen",
+        message=f"Citizen {'confirmed' if payload.approved else 'rejected'} the resolution for '{issue.title}'.",
+        icon="✅" if payload.approved else "⚠️",
+        issue_id=issue_id
+    )
+    db.add(notif)
+    await db.commit()
+
+    await ws_manager.broadcast({
+        "type": "citizen_approved",
+        "issue_id": issue_id,
+        "approved": payload.approved,
+        "status": "resolved" if payload.approved else "in_progress"
+    })
+
+    return {"success": True, "approved": payload.approved, "status": new_status}

@@ -52,6 +52,8 @@ interface AppContextType {
   redeemReward: (cost: number) => Promise<string>;
   assignTeamToIssue: (issueId: string, teamName: string, officerNames: string[], slaHours?: number) => void;
   updateOfficerStatus: (officerId: string, status: "on_shift" | "off_duty" | "on_leave") => void;
+  addOfficer: (officer: Omit<CityRosterOfficer, "id" | "activeAssignments">) => void;
+  updateOfficer: (officerId: string, data: Partial<CityRosterOfficer>) => void;
   markNotificationAsRead: (id: string) => void;
   markAllNotificationsAsRead: () => void;
   clearNotifications: () => void;
@@ -68,21 +70,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activities, setActivities] = useState<UserActivity[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>("Mumbai");
   const [roster, setRoster] = useState<CityRosterOfficer[]>(INITIAL_CITY_ROSTERS);
+  // User-specific notification key in localStorage
+  const notifStorageKey = user?.uid ? `urbanEyeNotifications_${user.uid}` : "urbanEyeNotifications_guest";
+
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     if (typeof window === "undefined") return INITIAL_NOTIFICATIONS;
     try {
-      const saved = window.localStorage.getItem("urbanEyeNotifications");
+      const saved = window.localStorage.getItem("urbanEyeNotifications_guest");
       return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
     } catch {
       return INITIAL_NOTIFICATIONS;
     }
   });
 
+  // Reload notifications when active user changes
   useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem("urbanEyeNotifications", JSON.stringify(notifications));
+      const saved = window.localStorage.getItem(notifStorageKey);
+      setNotifications(saved ? JSON.parse(saved) : []);
+    } catch {
+      setNotifications([]);
+    }
+  }, [user?.uid]);
+
+  // Persist notifications under user-specific key
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(notifStorageKey, JSON.stringify(notifications));
     } catch {}
-  }, [notifications]);
+  }, [notifications, notifStorageKey]);
 
   function markNotificationAsRead(id: string) {
     setNotifications(prev =>
@@ -287,9 +305,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } : i)
         );
 
-        if (event.notification) {
+        if (event.notification && (!event.reporterId || event.reporterId === user?.uid)) {
           setNotifications(prev => [event.notification, ...prev]);
         }
+      } else if (event.type === "arrival_proof_submitted") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? {
+            ...i,
+            status: "in_progress",
+            siteArrivalProof: event.siteArrivalProof
+          } : i)
+        );
+        if (event.notification && (!event.reporterId || event.reporterId === user?.uid)) {
+          setNotifications(prev => [event.notification, ...prev]);
+        }
+      } else if (event.type === "resolution_proof_submitted") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? {
+            ...i,
+            status: "pending_approval",
+            resolutionProof: event.resolutionProof
+          } : i)
+        );
+        if (event.notification && (!event.reporterId || event.reporterId === user?.uid)) {
+          setNotifications(prev => [event.notification, ...prev]);
+        }
+      } else if (event.type === "citizen_approved") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? {
+            ...i,
+            status: event.approved ? "resolved" : "in_progress",
+            resolutionProof: i.resolutionProof ? { ...i.resolutionProof, approvedByCitizen: event.approved } : undefined
+          } : i)
+        );
       }
     });
 
@@ -419,7 +467,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifications(prev => [newNotif, ...prev]);
 
     try {
-      apiClient.patch(`/issues/${issueId}/status`, { status: "in_progress" });
+      await apiClient.patch(`/issues/${issueId}/arrival-proof`, {
+        image_url: proof.imageUrl,
+        lat: proof.lat,
+        lng: proof.lng,
+        location_name: proof.locationName || targetIssue?.location,
+        submitted_by: arrivedBy
+      });
     } catch (e) {
       console.warn("Backend update error:", e);
     }
@@ -460,7 +514,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifications(prev => [newNotif, ...prev]);
 
     try {
-      apiClient.patch(`/issues/${issueId}/status`, { status: "pending_approval" });
+      await apiClient.patch(`/issues/${issueId}/resolution-proof`, {
+        image_url: proof.imageUrl,
+        lat: proof.lat,
+        lng: proof.lng,
+        location_name: proof.locationName || targetIssue?.location,
+        submitted_by: resolvedBy
+      });
     } catch (e) {
       console.warn("Backend update error:", e);
     }
@@ -497,7 +557,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifications(prev => [newNotif, ...prev]);
 
     try {
-      apiClient.patch(`/issues/${issueId}/status`, { status: newStatus });
+      await apiClient.patch(`/issues/${issueId}/citizen-approve`, {
+        approved,
+        citizen_id: user?.uid
+      });
     } catch (e) {
       console.warn("Backend update error:", e);
     }
@@ -689,6 +752,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRoster(prev => prev.map(o => o.id === officerId ? { ...o, status } : o));
   }
 
+  function addOfficer(officer: Omit<CityRosterOfficer, "id" | "activeAssignments">) {
+    const newId = `off-${Date.now()}`;
+    const newOfficer: CityRosterOfficer = {
+      ...officer,
+      id: newId,
+      activeAssignments: 0,
+      avatar: officer.avatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop`
+    };
+    setRoster(prev => [newOfficer, ...prev]);
+  }
+
+  function updateOfficer(officerId: string, data: Partial<CityRosterOfficer>) {
+    setRoster(prev => prev.map(o => o.id === officerId ? { ...o, ...data } : o));
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -720,6 +798,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         redeemReward,
         assignTeamToIssue,
         updateOfficerStatus,
+        addOfficer,
+        updateOfficer,
         markNotificationAsRead,
         markAllNotificationsAsRead,
         clearNotifications,

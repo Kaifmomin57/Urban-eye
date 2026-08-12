@@ -23,10 +23,12 @@ async def lifespan(app: FastAPI):
     print("[PostgreSQL] Creating database tables & verifying schema...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Auto-migrate columns if table already existed without lat/lng
+        # Auto-migrate columns added after initial deployment
         from sqlalchemy import text
         await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;"))
         await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;"))
+        await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS site_arrival_proof JSON;"))
+        await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS resolution_proof JSON;"))
     print("[PostgreSQL] Tables & columns verified.")
 
     # Pre-seed initial sample data if empty

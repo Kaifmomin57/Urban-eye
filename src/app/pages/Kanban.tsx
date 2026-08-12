@@ -21,23 +21,16 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
   const { upvoteIssue, approveResolution, user } = useApp();
   const [voted, setVoted] = useState(false);
 
-  // Check if current user is the author of this report or an official/ward administrator
-  const isOwner = !!user && (
-    user.role === "official" ||
-    user.role === "ward" ||
-    user.role === "field_employee" ||
-    issue.reportedBy === user.uid ||
-    issue.reportedBy === user.name ||
-    (issue as any).reporterId === user.uid ||
-    (issue as any).reporterName === user.name
-  );
+  // Drag-and-drop is disabled for all users (including Admins & Employees).
+  // Status changes only happen via the defined workflow actions (Assign Team -> Site Visit Proof -> Resolution Proof -> Citizen Approval).
+  const isOwner = false;
 
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ITEM_TYPE,
     item: { id: issue.id },
-    canDrag: isOwner,
+    canDrag: false,
     collect: (monitor) => ({ isDragging: monitor.isDragging() }),
-  }), [isOwner, issue.id]);
+  }), [issue.id]);
 
   function handleVote(e: React.MouseEvent) {
     e.stopPropagation();
@@ -101,36 +94,42 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
       {issue.status === "pending_approval" && (
         <div className="mt-3 pt-3 border-t border-purple-500/20 bg-purple-500/5 -mx-4 -mb-4 p-3 rounded-b-xl">
           <div className="text-[11px] font-semibold text-purple-300 mb-1 flex items-center gap-1">
-            <span>📸</span> Resolution Proof Submitted
+            <span>📸</span> Final Photo Uploaded — Citizen Confirmation Required
           </div>
           {issue.resolutionProof && (
             <div className="flex items-center gap-2 mb-2">
               <img src={issue.resolutionProof.imageUrl} alt="Proof" className="w-12 h-10 rounded object-cover border border-purple-500/30" />
               <div className="text-[10px] text-slate-400">
-                Uploaded by {issue.resolutionProof.resolvedBy}
+                Resolved by {issue.resolutionProof.resolvedBy}
               </div>
             </div>
           )}
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                approveResolution(issue.id, true);
-              }}
-              className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-all"
-            >
-              ✓ Approve Solved
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                approveResolution(issue.id, false);
-              }}
-              className="py-1 px-2 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 text-[11px] font-semibold transition-all"
-            >
-              ✕ Reject
-            </button>
-          </div>
+          {user?.role === "citizen" || user?.uid === issue.reportedBy ? (
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  approveResolution(issue.id, true);
+                }}
+                className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-all"
+              >
+                ✓ Approve & Mark Resolved
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  approveResolution(issue.id, false);
+                }}
+                className="py-1 px-2 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 text-[11px] font-semibold transition-all"
+              >
+                ✕ Reject
+              </button>
+            </div>
+          ) : (
+            <div className="text-[10px] text-slate-400 italic mt-1">
+              Awaiting confirmation from citizen reporter ({issue.reportedBy || "Citizen"}). Admins cannot override final photo approval.
+            </div>
+          )}
         </div>
       )}
 
