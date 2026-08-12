@@ -1,20 +1,25 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Bell, CheckCircle2, MapPin, Camera, Shield, AlertTriangle,
-  Upload, Check, RefreshCw, Radio, Truck, FileCheck, Clock
+  Bell, CheckCircle2, MapPin, Camera, Shield,
+  Check, RefreshCw, Radio, Truck, FileCheck, Clock, FileText, X, Image
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
+import AIDossierModal from "../components/AIDossierModal";
+import { generateSingleDossier, AIComplaintDossier } from "../lib/aiAnalyzerService";
 
 export default function EmployeePortal() {
   const { user, issues, notifications, submitSiteArrivalProof, submitResolutionProof, loading } = useApp();
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [activeFormType, setActiveFormType] = useState<"arrival" | "resolution" | null>(null);
-  const [imageUrl, setImageUrl] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string>("");
   const [isCapturingLoc, setIsCapturingLoc] = useState(false);
   const [geoLoc, setGeoLoc] = useState<{ lat: number; lng: number; address: string } | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  const [dossierModal, setDossierModal] = useState<AIComplaintDossier | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (loading) {
     return (
@@ -69,38 +74,55 @@ export default function EmployeePortal() {
   const handleUploadProof = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedIssueId || !activeFormType) return;
+    if (!proofFile) { alert("Please select an image file first."); return; }
 
-    const finalImage = imageUrl.trim() || "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?w=600&h=400&fit=crop";
     const finalLat = geoLoc?.lat || 19.0596;
     const finalLng = geoLoc?.lng || 72.8295;
     const finalLoc = geoLoc?.address || "GPS Verified Coordinates";
 
     setSubmittingProof(true);
     try {
+      // Upload image file to backend and get URL
+      let finalImageUrl = proofPreview; // fallback: base64 preview
+      try {
+        const fd = new FormData();
+        fd.append("image", proofFile);
+        const uploadRes = await fetch(`http://localhost:8000/upload`, { method: "POST", body: fd });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          finalImageUrl = uploadData.url || uploadData.imageUrl || proofPreview;
+        }
+      } catch {
+        // If dedicated upload fails, use base64 preview stored in state
+        finalImageUrl = proofPreview;
+      }
+
       if (activeFormType === "arrival") {
         await submitSiteArrivalProof(selectedIssueId, {
-          imageUrl: finalImage,
+          imageUrl: finalImageUrl,
           lat: finalLat,
           lng: finalLng,
           locationName: finalLoc
         });
-        setSuccessMsg("Site arrival proof uploaded! Status moved from New -> In Progress.");
+        setSuccessMsg("✅ Site arrival proof uploaded! Status moved to In Progress.");
       } else {
         await submitResolutionProof(selectedIssueId, {
-          imageUrl: finalImage,
+          imageUrl: finalImageUrl,
           lat: finalLat,
           lng: finalLng,
           locationName: finalLoc
         });
-        setSuccessMsg("Final resolution proof sent to Citizen for confirmation!");
+        setSuccessMsg("📸 Resolution proof sent to Citizen for confirmation!");
       }
       setSelectedIssueId(null);
       setActiveFormType(null);
-      setImageUrl("");
+      setProofFile(null);
+      setProofPreview("");
       setGeoLoc(null);
-      setTimeout(() => setSuccessMsg(""), 5000);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setTimeout(() => setSuccessMsg(""), 6000);
     } catch {
-      alert("Failed to submit proof.");
+      alert("Failed to submit proof. Please try again.");
     } finally {
       setSubmittingProof(false);
     }
@@ -209,8 +231,25 @@ export default function EmployeePortal() {
                     </div>
                   </div>
 
-                  {/* Action Buttons: 2 Photo Workflow */}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {/* Action Buttons: Dossier + 2 Photo Workflow */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {/* Full Dossier View (same AI Dossier as Admin) */}
+                    <button
+                      onClick={() => {
+                        const dossier = generateSingleDossier(issue, issue.city || "Mumbai");
+                        setDossierModal(dossier);
+                      }}
+                      style={{
+                        padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
+                        background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)",
+                        color: "#c084fc", cursor: "pointer", display: "flex", alignItems: "center", gap: 6
+                      }}
+                      title="View Full Admin AI Complaint Dossier"
+                    >
+                      <FileText size={14} />
+                      View Full AI Dossier
+                    </button>
+
                     {isNew && (
                       <button
                         onClick={() => {
@@ -268,104 +307,171 @@ export default function EmployeePortal() {
                   </div>
                 </div>
 
-                {/* Arrival Proof Preview if submitted */}
-                {issue.siteArrivalProof && (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)", display: "flex", alignItems: "center", gap: 12 }}>
-                    <img src={issue.siteArrivalProof.imageUrl} alt="Arrival Proof" style={{ width: 60, height: 45, borderRadius: 6, objectFit: "cover" }} />
-                    <div style={{ fontSize: 11 }}>
-                      <div style={{ color: "#60a5fa", fontWeight: 600 }}>📍 Photo 1: Site Arrival Verified</div>
-                      <div style={{ color: "rgba(255,255,255,0.4)" }}>Arrived: {new Date(issue.siteArrivalProof.arrivedAt).toLocaleTimeString()}</div>
+                {/* ── Submissions & Proofs Attached Section ── */}
+                {(issue.siteArrivalProof || issue.resolutionProof) && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: "rgba(255,255,255,0.5)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      📷 Attached Field Proofs
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+                      {issue.siteArrivalProof && (
+                        <div style={{ padding: 10, borderRadius: 10, background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.18)", display: "flex", alignItems: "center", gap: 12 }}>
+                          <img src={issue.siteArrivalProof.imageUrl} alt="Arrival Proof" style={{ width: 64, height: 48, borderRadius: 8, objectFit: "cover", border: "1px solid rgba(59,130,246,0.3)" }} />
+                          <div style={{ fontSize: 11 }}>
+                            <div style={{ color: "#60a5fa", fontWeight: 700 }}>📍 Photo 1: On-Site Arrival</div>
+                            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>{issue.siteArrivalProof.locationName}</div>
+                            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>Arrived: {new Date(issue.siteArrivalProof.arrivedAt).toLocaleTimeString()}</div>
+                          </div>
+                        </div>
+                      )}
+                      {issue.resolutionProof && (
+                        <div style={{ padding: 10, borderRadius: 10, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.18)", display: "flex", alignItems: "center", gap: 12 }}>
+                          <img src={issue.resolutionProof.imageUrl} alt="Resolution Proof" style={{ width: 64, height: 48, borderRadius: 8, objectFit: "cover", border: "1px solid rgba(16,185,129,0.3)" }} />
+                          <div style={{ fontSize: 11 }}>
+                            <div style={{ color: "#34d399", fontWeight: 700 }}>📸 Photo 2: Final Work Solved</div>
+                            <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, marginTop: 2 }}>{issue.resolutionProof.locationName}</div>
+                            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>Submitted: {new Date(issue.resolutionProof.resolvedAt).toLocaleTimeString()}</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Form Drawer */}
+                {/* ── Proof Upload Form Drawer ── */}
                 {isSelected && activeFormType && (
-                  <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} onSubmit={handleUploadProof} style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: activeFormType === "arrival" ? "#60a5fa" : "#34d399", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                      {activeFormType === "arrival" ? <Truck size={14} /> : <FileCheck size={14} />}
-                      {activeFormType === "arrival" ? "Step 1: Site Arrival Image Proof (Moves status to In Progress)" : "Step 2: Final Resolution Proof (Requests Citizen Confirmation)"}
-                    </div>
-
-                    <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
-                      <div>
-                        <label style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", display: "block", marginBottom: 6, fontWeight: 600 }}>
-                          📸 {activeFormType === "arrival" ? "Upload On-Site Arrival Photo" : "Upload Final Solved Photo"}
-                        </label>
-
-                        <div style={{ marginBottom: 8 }}>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onload = (evt) => {
-                                  if (evt.target?.result) {
-                                    setImageUrl(evt.target.result as string);
-                                  }
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                            style={{
-                              fontSize: 12, color: "rgba(255,255,255,0.7)",
-                              background: "rgba(255,255,255,0.04)",
-                              border: "1px dashed rgba(255,255,255,0.2)",
-                              borderRadius: 8, padding: "8px 12px", width: "100%", cursor: "pointer"
-                            }}
-                          />
+                  <motion.form
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    onSubmit={handleUploadProof}
+                    style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)", overflow: "hidden" }}
+                  >
+                    {/* Step Header */}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{
+                          width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: activeFormType === "arrival" ? "rgba(59,130,246,0.2)" : "rgba(16,185,129,0.2)",
+                        }}>
+                          {activeFormType === "arrival" ? <Truck size={16} color="#60a5fa" /> : <FileCheck size={16} color="#34d399" />}
                         </div>
-
-                        <input
-                          type="text"
-                          value={imageUrl.startsWith("data:") ? "[Local Photo Selected]" : imageUrl}
-                          onChange={(e) => setImageUrl(e.target.value)}
-                          placeholder="Or paste photo URL..."
-                          style={{ width: "100%", padding: "9px 12px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
-                        />
-
-                        {imageUrl && (
-                          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                            <img src={imageUrl} alt="Preview" style={{ width: 80, height: 60, borderRadius: 8, objectFit: "cover", border: "1px solid rgba(16,185,129,0.4)" }} />
-                            <div style={{ fontSize: 11, color: "#34d399", fontWeight: 600 }}>
-                              ✓ Photo attached & GPS verified
-                            </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: activeFormType === "arrival" ? "#60a5fa" : "#34d399" }}>
+                            {activeFormType === "arrival" ? "Step 1 — Site Visit Proof" : "Step 2 — Issue Resolved Proof"}
                           </div>
-                        )}
-                      </div>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={handleCaptureGPS}
-                          disabled={isCapturingLoc}
-                          style={{ padding: "8px 14px", borderRadius: 8, background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", fontSize: 11.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                        >
-                          {isCapturingLoc ? <RefreshCw size={12} className="animate-spin" /> : <MapPin size={12} />}
-                          {isCapturingLoc ? "Detecting GPS..." : "Fetch GPS Location"}
-                        </button>
-
-                        {geoLoc && (
-                          <div style={{ fontSize: 11, color: "#34d399", background: "rgba(16,185,129,0.1)", padding: "6px 12px", borderRadius: 8 }}>
-                            📍 {geoLoc.address}
+                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                            {activeFormType === "arrival" ? "Upload a photo taken at the site location" : "Upload a photo showing the completed fix"}
                           </div>
-                        )}
+                        </div>
                       </div>
                     </div>
 
-                    <button
-                      type="submit"
-                      disabled={submittingProof}
+                    {/* Image Upload Box */}
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
                       style={{
-                        padding: "10px 20px", borderRadius: 10,
-                        background: activeFormType === "arrival" ? "linear-gradient(135deg, #2563EB, #1D4ED8)" : "linear-gradient(135deg, #10B981, #059669)",
-                        color: "#fff", fontSize: 12.5, fontWeight: 700, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6
+                        border: `2px dashed ${proofPreview ? (activeFormType === "arrival" ? "#3b82f6" : "#10b981") : "rgba(255,255,255,0.15)"}`,
+                        borderRadius: 12, padding: proofPreview ? 0 : "28px 20px",
+                        cursor: "pointer", position: "relative", overflow: "hidden",
+                        background: proofPreview ? "transparent" : "rgba(255,255,255,0.02)",
+                        transition: "all 0.2s", marginBottom: 12,
+                        minHeight: proofPreview ? 180 : "auto",
                       }}
                     >
-                      {submittingProof ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
-                      {submittingProof ? "Submitting..." : activeFormType === "arrival" ? "Submit Arrival Proof (Move to In Progress)" : "Submit Solved Proof (Send Citizen Approval)"}
+                      {proofPreview ? (
+                        <>
+                          <img
+                            src={proofPreview}
+                            alt="Proof preview"
+                            style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 10, display: "block" }}
+                          />
+                          <div style={{
+                            position: "absolute", bottom: 8, left: 8, right: 8,
+                            background: "rgba(0,0,0,0.65)", borderRadius: 8, padding: "6px 10px",
+                            display: "flex", alignItems: "center", justifyContent: "space-between"
+                          }}>
+                            <span style={{ fontSize: 11, color: "#fff", fontWeight: 600 }}>
+                              📷 {proofFile?.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={e => { e.stopPropagation(); setProofFile(null); setProofPreview(""); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                              style={{ background: "rgba(239,68,68,0.8)", border: "none", borderRadius: 4, color: "#fff", cursor: "pointer", padding: "2px 6px", fontSize: 10, fontWeight: 700 }}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                          <div style={{
+                            position: "absolute", top: 8, right: 8,
+                            background: activeFormType === "arrival" ? "rgba(59,130,246,0.9)" : "rgba(16,185,129,0.9)",
+                            borderRadius: 6, padding: "3px 8px", fontSize: 10, fontWeight: 700, color: "#fff"
+                          }}>
+                            ✓ Photo Ready
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ textAlign: "center" }}>
+                          <Image size={28} color="rgba(255,255,255,0.25)" style={{ margin: "0 auto 10px" }} />
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.5)" }}>Click to upload image</div>
+                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>JPG, PNG, WEBP — max 10MB</div>
+                        </div>
+                      )}
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setProofFile(file);
+                          setProofPreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
+
+                    {/* GPS Capture */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={handleCaptureGPS}
+                        disabled={isCapturingLoc}
+                        style={{ padding: "8px 14px", borderRadius: 8, background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", fontSize: 11.5, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                      >
+                        {isCapturingLoc ? <RefreshCw size={12} className="animate-spin" /> : <MapPin size={12} />}
+                        {isCapturingLoc ? "Detecting GPS..." : geoLoc ? "✓ GPS Captured" : "📍 Capture GPS Location"}
+                      </button>
+                      {geoLoc && (
+                        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(16,185,129,0.1)", padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.2)" }}>
+                          {geoLoc.address}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Submit */}
+                    <button
+                      type="submit"
+                      disabled={submittingProof || !proofFile}
+                      style={{
+                        width: "100%", padding: "12px 20px", borderRadius: 12,
+                        background: !proofFile ? "rgba(255,255,255,0.05)"
+                          : activeFormType === "arrival" ? "linear-gradient(135deg, #2563EB, #1D4ED8)"
+                          : "linear-gradient(135deg, #10B981, #059669)",
+                        color: !proofFile ? "rgba(255,255,255,0.3)" : "#fff",
+                        fontSize: 13, fontWeight: 700, border: "none",
+                        cursor: proofFile ? "pointer" : "not-allowed",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      {submittingProof
+                        ? <><RefreshCw size={15} className="animate-spin" /> Uploading Proof...</>
+                        : activeFormType === "arrival"
+                        ? <><Truck size={15} /> Submit Site Visit Proof (Move to In Progress)</>
+                        : <><CheckCircle2 size={15} /> Submit Resolution Proof (Send for Citizen Approval)</>}
                     </button>
                   </motion.form>
                 )}
@@ -375,6 +481,14 @@ export default function EmployeePortal() {
         </div>
 
       </div>
+
+      {/* Admin AI Complaint Dossier Modal */}
+      {dossierModal && (
+        <AIDossierModal
+          dossier={dossierModal}
+          onClose={() => setDossierModal(null)}
+        />
+      )}
     </div>
   );
 }

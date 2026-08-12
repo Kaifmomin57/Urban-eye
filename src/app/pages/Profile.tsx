@@ -12,6 +12,7 @@ import {
 import { useApp } from "../context/AppContext";
 import { MONTHLY_DATA, Issue } from "../data/mockData";
 import { UserActivity } from "../lib/activityService";
+import { IssueTracker } from "../components/IssueTrackerPanel";
 
 const RANK_TIERS_DATA = [
   { name: "Newcomer",       minPoints: 0,     maxPoints: 500,   color: "#64748b", icon: "🌱" },
@@ -1133,6 +1134,29 @@ export default function Profile() {
                 <span className="text-[10px] text-slate-500">More</span>
               </div>
             </motion.div>
+
+            {/* ── Live Issue Progress Tracker ── */}
+            {myIssues.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.22 }}
+                className="space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+                    Live Issue Tracker ({myIssues.length})
+                  </h3>
+                  <span className="text-xs text-slate-400">6-Step Lifecycle</span>
+                </div>
+                <div className="space-y-4">
+                  {myIssues.slice(0, 3).map(issue => (
+                    <IssueTracker key={issue.id} issue={issue} compact />
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* ── My Reported Issues ── */}
             <motion.div

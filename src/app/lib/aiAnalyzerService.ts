@@ -46,6 +46,58 @@ export interface IssueCluster {
 }
 
 /**
+ * Generates a formal AI Complaint Dossier for a single Issue object.
+ */
+export function generateSingleDossier(issue: Issue, city: string = "Mumbai"): AIComplaintDossier {
+  let score = 40;
+  if (issue.category === "Utilities" || issue.category === "Safety") score += 25;
+  else if (issue.category === "Infrastructure") score += 20;
+  else score += 10;
+
+  if (issue.votes > 20) score += 15;
+  score = Math.min(98, Math.max(15, score));
+
+  let priorityLevel: "critical" | "high" | "medium" | "low" = "medium";
+  let suggestedSlaHours = 24;
+
+  if (score >= 80 || issue.priority === "critical") {
+    priorityLevel = "critical";
+    suggestedSlaHours = 4;
+  } else if (score >= 60 || issue.priority === "high") {
+    priorityLevel = "high";
+    suggestedSlaHours = 12;
+  } else if (score >= 40) {
+    priorityLevel = "medium";
+    suggestedSlaHours = 24;
+  } else {
+    priorityLevel = "low";
+    suggestedSlaHours = 48;
+  }
+
+  return {
+    issueId: issue.id,
+    title: issue.title,
+    city: city || issue.city || "Mumbai",
+    location: issue.location,
+    category: issue.category,
+    duplicateCount: 1,
+    aiScore: score,
+    priorityLevel,
+    suggestedSlaHours,
+    summary: `AI Intelligence Analysis detected report in ${issue.location}, ${city} regarding ${issue.category.toLowerCase()}. Total community upvotes: ${issue.votes || 0}.`,
+    riskAssessment:
+      priorityLevel === "critical"
+        ? "CRITICAL HAZARD: High risk of severe infrastructure disruption, public safety risk, or property damage. Immediate dispatch required."
+        : priorityLevel === "high"
+        ? "HIGH RISK: Moderate disruption to daily ward activities. Resolution required within 12-hour window to prevent escalation."
+        : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable.",
+    citizenImpactScore: Math.min(95, Math.max(30, score + 10)),
+    recommendedAction: `Dispatch ${issue.category} Response Squad immediately. Contact ward officer for verification.`,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * City-wise comparative AI Analyzer.
  * Groups issues by city and calculates relative priority scores based on:
  * 1. Category inherent risk (Infrastructure/Utilities/Safety > Public Spaces)
@@ -60,29 +112,21 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
     totalCityIssues: number;
     criticalCount: number;
     highCount: number;
-    avgSlaHours: number;
     escalatedCount: number;
+    avgSlaHours: number;
   };
 } {
-  const targetCity = (city || "Mumbai").toLowerCase();
-  // Filter issues belonging to the selected city (default to Mumbai if unspecified)
-  const cityIssues = (allIssues || []).filter(
-    (i) => (i.city || "Mumbai").toLowerCase() === targetCity
+  const cityIssues = allIssues.filter(
+    (i) => (i.city || "Mumbai").toLowerCase() === city.toLowerCase()
   );
 
-  // Group similar issues by location/category proximity
-  const clusterMap: Record<string, Issue[]> = {};
-
-  cityIssues.forEach((issue) => {
-    // Key by category + basic location normalized
-    const locKey = issue.location.split(",")[0].trim().toLowerCase();
-    const key = `${issue.category.toLowerCase()}-${locKey}`;
-
-    if (!clusterMap[key]) {
-      clusterMap[key] = [];
-    }
-    clusterMap[key].push(issue);
-  });
+  // Group by near location & category to find duplicate complaints
+  const groups: Map<string, Issue[]> = new Map();
+  for (const issue of cityIssues) {
+    const key = `${issue.location.toLowerCase().trim()}_${issue.category}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(issue);
+  }
 
   const clusters: IssueCluster[] = [];
   const dossiers: Record<string, AIComplaintDossier> = {};
@@ -92,9 +136,8 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
   let escalatedCount = 0;
   let totalSlaHoursSum = 0;
 
-  Object.entries(clusterMap).forEach(([key, group], idx) => {
-    // Sort group by votes and creation date to find primary issue
-    group.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+  let idx = 0;
+  for (const [, group] of groups.entries()) {
     const primary = group[0];
     const duplicateCount = group.length;
     const totalVotes = group.reduce((sum, i) => sum + (i.votes || 0), 0);
@@ -178,14 +221,20 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
           : priorityLevel === "high"
           ? "HIGH RISK: Moderate disruption to daily ward activities. Resolution required within 12-hour window to prevent escalation."
           : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable.",
-      citizenImpactScore: Math.min(100, score + duplicateCount * 5),
-      recommendedAction: `Deploy ${primary.category} Emergency Response Squad. Target Action SLA: ${suggestedSlaHours} Hours. Dispatch formal status updates to ${duplicateCount} reporting citizen(s).`,
+      citizenImpactScore: Math.min(98, Math.max(20, score + duplicateCount * 5)),
+      recommendedAction:
+        priorityLevel === "critical"
+          ? "IMMEDIATE DISPATCH: Deploy Quick Response Emergency Squad within 4 hours."
+          : priorityLevel === "high"
+          ? "PRIORITY ASSIGNMENT: Assign ward engineer squad within 12 hours."
+          : "SCHEDULED MAINTENANCE: Queue for next scheduled ward maintenance cycle.",
       generatedAt: new Date().toISOString(),
     };
-  });
 
-  // Sort clusters by highest AI Priority Score first
-  clusters.sort((a, b) => b.calculatedPriorityScore - a.calculatedPriorityScore);
+    idx++;
+  }
+
+  const avgSlaHours = clusters.length > 0 ? Math.round(totalSlaHoursSum / clusters.length) : 24;
 
   return {
     clusters,
@@ -194,8 +243,8 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
       totalCityIssues: cityIssues.length,
       criticalCount,
       highCount,
-      avgSlaHours: clusters.length ? Math.round(totalSlaHoursSum / clusters.length) : 24,
       escalatedCount,
+      avgSlaHours,
     },
   };
 }

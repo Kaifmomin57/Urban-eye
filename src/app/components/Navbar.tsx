@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
-import { Menu, X, Bell, Search, ChevronDown, Zap, LogOut, CheckCheck, Trash2 } from "lucide-react";
+import { Menu, X, Bell, Search, ChevronDown, Zap, LogOut, CheckCheck, Trash2, Radio } from "lucide-react";
 import { useApp } from "../context/AppContext";
+import { IssueTrackerModal } from "./IssueTrackerPanel";
 
 const NAV_LINKS = [
   { label: "Dashboard", href: "/dashboard" },
@@ -10,6 +11,7 @@ const NAV_LINKS = [
   { label: "City Map", href: "/map" },
   { label: "Kanban", href: "/kanban" },
   { label: "AI Admin", href: "/admin", isAi: true },
+  { label: "Field Staff", href: "/employee", isEmployee: true },
   { label: "Rewards", href: "/rewards" },
   { label: "Profile", href: "/profile" },
 ];
@@ -32,6 +34,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [trackerOpen, setTrackerOpen] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -78,6 +81,7 @@ export default function Navbar() {
   const isAdmin = user?.role === "official" || user?.role === "ward";
 
   return (
+    <>
     <motion.nav
       initial={{ y: -80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
@@ -107,6 +111,7 @@ export default function Navbar() {
             {NAV_LINKS.filter((link) => {
               const isAdmin = user?.role === "official" || user?.role === "ward";
               const isEmployee = user?.role === "field_employee";
+              if ((link as any).isEmployee && !isEmployee) return false;
               if (link.isAi && !isAdmin) return false;
               if (isEmployee && (link.href === "/report" || link.href === "/rewards")) return false;
               if (link.href === "/rewards" && isAdmin) return false;
@@ -136,6 +141,20 @@ export default function Navbar() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Live Track button — only for logged-in citizens (not admin/employee) */}
+            {user && !isAdmin && user.role !== "field_employee" && (
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setTrackerOpen(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/25 bg-blue-500/8 text-xs font-semibold text-blue-300 hover:bg-blue-500/15 hover:text-white transition-all duration-200 shadow-[0_0_10px_rgba(59,130,246,0.12)]"
+                title="Live Issue Tracker"
+              >
+                <Radio size={13} className="animate-pulse" />
+                <span className="hidden lg:block">Live Track</span>
+              </motion.button>
+            )}
+
             <motion.button
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.96 }}
@@ -371,6 +390,7 @@ export default function Navbar() {
               {NAV_LINKS.filter((link) => {
                 const isAdmin = user?.role === "official" || user?.role === "ward";
                 const isEmployee = user?.role === "field_employee";
+                if ((link as any).isEmployee && !isEmployee) return false;
                 if (link.isAi && !isAdmin) return false;
                 if (isEmployee && (link.href === "/report" || link.href === "/rewards")) return false;
                 if (link.href === "/rewards" && isAdmin) return false;
@@ -419,5 +439,15 @@ export default function Navbar() {
         )}
       </AnimatePresence>
     </motion.nav>
+
+    {/* Live Issue Tracker Modal */}
+    {trackerOpen && (
+      <IssueTrackerModal
+        issues={issues}
+        userUid={user?.uid}
+        onClose={() => setTrackerOpen(false)}
+      />
+    )}
+    </>
   );
 }

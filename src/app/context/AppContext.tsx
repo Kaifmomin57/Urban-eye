@@ -174,13 +174,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
+  // ── Normalize raw backend issue to frontend Issue shape ──────────────────────
+  function normalizeIssue(raw: any): Issue {
+    // Map backend status strings to frontend status union
+    const statusMap: Record<string, Issue["status"]> = {
+      "Reported":           "new",
+      "reported":           "new",
+      "new":                "new",
+      "In Progress":        "in_progress",
+      "in_progress":        "in_progress",
+      "Pending Approval":   "pending_approval",
+      "pending_approval":   "pending_approval",
+      "Resolved":           "resolved",
+      "resolved":           "resolved",
+    };
+
+    // Map backend assignedTeam (string) to frontend assignedTeam object
+    let assignedTeam = raw.assignedTeam;
+    if (typeof raw.assignedTeam === "string" && raw.assignedTeam) {
+      assignedTeam = {
+        teamName: raw.assignedTeam,
+        officerNames: Array.isArray(raw.assignedOfficers) ? raw.assignedOfficers : [],
+        assignedAt: raw.assignedAt || raw.createdAt || new Date().toISOString(),
+      };
+    }
+
+    return {
+      id: raw.id,
+      title: raw.title || "",
+      description: raw.description || "",
+      category: raw.category || "Infrastructure",
+      priority: raw.priority || "medium",
+      status: statusMap[raw.status] || "new",
+      location: raw.location || "",
+      city: raw.city || "Mumbai",
+      lat: raw.lat || 0,
+      lng: raw.lng || 0,
+      votes: raw.votes ?? 0,
+      comments: raw.comments ?? 0,
+      reportedBy: raw.reportedBy || raw.reporterId || "",
+      reportedAt: raw.reportedAt || raw.createdAt || new Date().toISOString(),
+      image: raw.imageUrl || raw.image || undefined,
+      tags: raw.tags || [],
+      aiPriorityScore: raw.aiScore,
+      aiPriorityLevel: raw.priorityLevel,
+      slaHours: raw.slaHours,
+      slaDeadline: raw.slaDeadline,
+      escalated: raw.escalated,
+      assignedTeam,
+      upvotedBy: raw.upvotedBy || [],
+      siteArrivalProof: raw.siteArrivalProof || undefined,
+      resolutionProof: raw.resolutionProof || undefined,
+    };
+  }
+
   // Fetch initial issues from PostgreSQL API and subscribe to WebSocket real-time events
   useEffect(() => {
     async function loadBackendIssues() {
       try {
         const fetched = await apiClient.get("/issues");
         if (Array.isArray(fetched)) {
-          setIssues(fetched);
+          setIssues(fetched.map(normalizeIssue));
         }
       } catch (e) {
         console.warn("Python FastAPI backend offline or unreachable, using local fallback issues:", e);
@@ -198,15 +252,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (event.type === "issue_created" && event.issue) {
         // Skip if this client created the issue — we already added it optimistically
         if (pendingTempIds.current.has(event.issue.id)) return;
+        const normalized = normalizeIssue(event.issue);
         setIssues(prev => {
-          const exists = prev.some(i => i.id === event.issue.id || (i.title === event.issue.title && i.location === event.issue.location));
-          return exists ? prev : [event.issue, ...prev];
+          const exists = prev.some(i => i.id === normalized.id || (i.title === normalized.title && i.location === normalized.location));
+          return exists ? prev : [normalized, ...prev];
         });
       } else if (event.type === "issue_deleted" && event.issue_id) {
         setIssues(prev => prev.filter(i => i.id !== event.issue_id));
       } else if (event.type === "issue_status_updated") {
+        const statusMap: Record<string, Issue["status"]> = {
+          "Reported": "new", "reported": "new", "new": "new",
+          "In Progress": "in_progress", "in_progress": "in_progress",
+          "Pending Approval": "pending_approval", "pending_approval": "pending_approval",
+          "Resolved": "resolved", "resolved": "resolved",
+        };
+        const normalizedStatus = statusMap[event.status] || event.status;
         setIssues(prev =>
-          prev.map(i => i.id === event.issue_id ? { ...i, status: event.status } : i)
+          prev.map(i => i.id === event.issue_id ? { ...i, status: normalizedStatus } : i)
         );
       } else if (event.type === "issue_upvoted") {
         setIssues(prev =>
