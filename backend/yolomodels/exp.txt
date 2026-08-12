@@ -1,0 +1,16 @@
+import urllib.request
+from ultralytics import YOLO
+
+# 1. Direct Hugging Face URL se model file (.pt) download karo
+url = "https://huggingface.co/keremberke/yolov8n-manhole-detection/resolve/main/best.pt"
+model_filename = "manhole_best.pt"
+
+print("Downloading pre-trained Manhole YOLO model...")
+urllib.request.urlretrieve(url, model_filename)
+print("Download Complete! File saved as:", model_filename)
+
+# 2. Model Load karo
+manhole_model = YOLO(model_filename)
+
+# 3. Test Run Karo
+results = manhole_model("test_image.jpg", show=True)

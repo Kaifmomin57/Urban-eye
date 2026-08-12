@@ -47,6 +47,10 @@ export interface Issue {
     resolvedBy: string;
     approvedByCitizen?: boolean;
   };
+  yoloDetections?: { class: string; confidence: number }[];
+  aiSummary?: string;
+  aiRiskAssessment?: string;
+  recommendedAction?: string;
 }
 
 export interface User {

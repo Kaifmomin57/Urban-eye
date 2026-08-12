@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, CheckCircle2, Clock, MapPin, Camera, Users, Shield, ThumbsUp } from "lucide-react";
+import { X, CheckCircle2, Clock, MapPin, Camera, Users, Shield, ThumbsUp, Cpu } from "lucide-react";
 import { Issue } from "../data/mockData";
 import { useApp } from "../context/AppContext";
+import AIReportModal from "./AIReportModal";
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 interface TrackStep {
@@ -143,6 +144,7 @@ function formatTime(iso: string | null) {
 // ── Single issue tracker ──────────────────────────────────────────────────────
 export function IssueTracker({ issue, compact = false }: { issue: Issue; compact?: boolean }) {
   const { approveResolution } = useApp();
+  const [showAiReport, setShowAiReport] = useState(false);
 
   const overallPercent = Math.round(
     (STEPS.filter(s => getStepStatus(issue, s.id) === "done").length / STEPS.length) * 100
@@ -178,14 +180,45 @@ export function IssueTracker({ issue, compact = false }: { issue: Issue; compact
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>{issue.location}</span>
             </div>
           </div>
-          <span style={{
-            padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "0.05em",
-            background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}30`,
-            whiteSpace: "nowrap"
-          }}>
-            {statusLabel}
-          </span>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <button
+              onClick={() => setShowAiReport(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "4px 10px",
+                borderRadius: 8,
+                background: "rgba(99,102,241,0.12)",
+                border: "1px solid rgba(99,102,241,0.25)",
+                color: "#a5b4fc",
+                fontSize: 10.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(99,102,241,0.2)";
+                e.currentTarget.style.border = "1px solid rgba(99,102,241,0.4)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(99,102,241,0.12)";
+                e.currentTarget.style.border = "1px solid rgba(99,102,241,0.25)";
+              }}
+            >
+              <Cpu size={11} />
+              View AI Report
+            </button>
+            <span style={{
+              padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+              textTransform: "uppercase", letterSpacing: "0.05em",
+              background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}30`,
+              whiteSpace: "nowrap"
+            }}>
+              {statusLabel}
+            </span>
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -328,6 +361,13 @@ export function IssueTracker({ issue, compact = false }: { issue: Issue; compact
           );
         })}
       </div>
+      {showAiReport && (
+        <AIReportModal
+          issueId={issue.id}
+          issueTitle={issue.title}
+          onClose={() => setShowAiReport(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,9 @@
 import os
 import uuid
 import shutil
+import httpx
+import cloudinary
+import cloudinary.uploader
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -55,6 +58,7 @@ async def get_all_issues(city: Optional[str] = None, db: AsyncSession = Depends(
             "aiRiskAssessment": i.ai_risk_assessment,
             "citizenImpactScore": i.citizen_impact_score or 50,
             "recommendedAction": i.recommended_action,
+            "yoloDetections": i.yolo_detections or [],
             "createdAt": i.created_at.isoformat() if i.created_at else datetime.utcnow().isoformat(),
             "reportedAt": i.created_at.isoformat() if i.created_at else datetime.utcnow().isoformat()
         })
@@ -79,15 +83,38 @@ async def create_issue(
 
     if image:
         image_bytes = await image.read()
-        ext = image.filename.split(".")[-1] if "." in image.filename else "jpg"
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        filepath = os.path.join(UPLOAD_DIR, filename)
-        with open(filepath, "wb") as f:
-            f.write(image_bytes)
-        image_url = f"/uploads/{filename}"
+        try:
+            print("[Cloudinary] Uploading image to Cloudinary...")
+            upload_result = cloudinary.uploader.upload(image_bytes)
+            image_url = upload_result.get("secure_url")
+            print(f"[Cloudinary] Upload success! URL: {image_url}")
+        except Exception as e:
+            print(f"[Cloudinary Error] Upload failed: {e}. Falling back to local upload.")
+            ext = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+            filename = f"{uuid.uuid4().hex}.{ext}"
+            filepath = os.path.join(UPLOAD_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(image_bytes)
+            image_url = f"/uploads/{filename}"
 
     # Analyze with Gemini Vision AI
     ai_result = await analyze_issue_with_ai(image_bytes, description, category, location)
+
+    ai_annotated_image_url = None
+    annotated_bytes = ai_result.get("annotated_image_bytes")
+    if annotated_bytes:
+        try:
+            print("[Cloudinary] Uploading annotated YOLO image...")
+            upload_result = cloudinary.uploader.upload(annotated_bytes)
+            ai_annotated_image_url = upload_result.get("secure_url")
+            print(f"[Cloudinary] Annotated image success! URL: {ai_annotated_image_url}")
+        except Exception as e:
+            print(f"[Cloudinary Error] Annotated upload failed: {e}. Falling back to local.")
+            filename = f"ann_{uuid.uuid4().hex}.jpg"
+            filepath = os.path.join(UPLOAD_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(annotated_bytes)
+            ai_annotated_image_url = f"/uploads/{filename}"
 
     issue_id = f"iss-{uuid.uuid4().hex[:8]}"
     new_issue = DBIssue(
@@ -112,7 +139,10 @@ async def create_issue(
         ai_summary=ai_result.get("summary", ""),
         ai_risk_assessment=ai_result.get("risk_assessment", ""),
         citizen_impact_score=ai_result.get("citizen_impact_score", 60),
-        recommended_action=ai_result.get("recommended_action", "")
+        recommended_action=ai_result.get("recommended_action", ""),
+        ai_full_report=ai_result.get("full_report", ""),
+        ai_annotated_image_url=ai_annotated_image_url,
+        yolo_detections=ai_result.get("yolo_detections", [])
     )
 
     db.add(new_issue)
@@ -174,6 +204,7 @@ async def create_issue(
         "aiRiskAssessment": new_issue.ai_risk_assessment,
         "citizenImpactScore": new_issue.citizen_impact_score,
         "recommendedAction": new_issue.recommended_action,
+        "yoloDetections": new_issue.yolo_detections or [],
         "createdAt": new_issue.created_at.isoformat()
     }
 
@@ -325,3 +356,145 @@ async def flag_fake_issue(issue_id: str, payload: IssueFlagSchema, db: AsyncSess
     })
 
     return {"success": True}
+
+
+# ─────────────────────────────────────────────────────────
+#  AI REPORT ENDPOINT
+#  GET /issues/{issue_id}/ai-report
+#  Runs YOLO + Gemini on the stored issue and returns
+#  a fully detailed AI analysis + human-readable report.
+# ─────────────────────────────────────────────────────────
+@router.get("/{issue_id}/ai-report")
+async def get_ai_report(issue_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieves the pre-generated AI report from the database instantly.
+    If the report is not found (e.g. for legacy/pre-seeded issues),
+    it generates it on the fly, saves it to the database, and returns it.
+    """
+    # 1. Fetch issue from DB
+    result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    # 2. Check if AI report is already pre-generated in DB
+    if issue.ai_full_report:
+        if issue.image_url and not issue.ai_annotated_image_url:
+            print(f"[AI Report] Issue {issue_id} has a report but no annotated image. Generating...")
+            try:
+                from services.ai_service import run_yolo_detection
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.get(issue.image_url)
+                    if resp.status_code == 200:
+                        _, annotated_bytes = run_yolo_detection(resp.content, issue.category or "General")
+                        if annotated_bytes:
+                            try:
+                                upload_result = cloudinary.uploader.upload(annotated_bytes)
+                                issue.ai_annotated_image_url = upload_result.get("secure_url")
+                            except Exception as upload_err:
+                                print(f"[AI Report] Lazy upload failed: {upload_err}. Saving locally.")
+                                filename = f"ann_{uuid.uuid4().hex}.jpg"
+                                filepath = os.path.join(UPLOAD_DIR, filename)
+                                with open(filepath, "wb") as f:
+                                    f.write(annotated_bytes)
+                                issue.ai_annotated_image_url = f"/uploads/{filename}"
+                            await db.commit()
+                            print(f"[AI Report] Successfully generated and cached annotated image: {issue.ai_annotated_image_url}")
+            except Exception as e:
+                print(f"[AI Report] Lazy annotated image generation failed: {e}")
+
+        print(f"[AI Report] Serving cached report for issue {issue_id} from DB.")
+        return {
+            "issue_id": issue.id,
+            "title": issue.title,
+            "description": issue.description,
+            "category": issue.category,
+            "location": issue.location,
+            "image_url": issue.image_url,
+            "status": issue.status,
+            "priority": issue.priority,
+            "ai_score": issue.ai_score,
+            "citizen_impact_score": issue.citizen_impact_score,
+            "suggested_category": issue.category,
+            "summary": issue.ai_summary or "",
+            "risk_assessment": issue.ai_risk_assessment or "",
+            "recommended_action": issue.recommended_action or "",
+            "suggested_sla_hours": issue.sla_hours,
+            "full_report": issue.ai_full_report,
+            "yolo_detections": issue.yolo_detections or [],
+            "ai_annotated_image_url": issue.ai_annotated_image_url,
+            "image_analyzed": issue.image_url is not None,
+            "yolo_ran": len(issue.yolo_detections or []) > 0,
+        }
+
+    # 3. If missing (legacy issues), generate on-the-fly and save
+    print(f"[AI Report] Report not found in DB for {issue_id}. Generating live...")
+    image_bytes = None
+    if issue.image_url:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(issue.image_url)
+                if resp.status_code == 200:
+                    image_bytes = resp.content
+                    print(f"[AI Report] Downloaded image for legacy issue {issue_id} ({len(image_bytes)} bytes)")
+        except Exception as e:
+            print(f"[AI Report] Legacy image download failed: {e}")
+
+    analysis = await analyze_issue_with_ai(
+        image_bytes=image_bytes,
+        description=issue.description or "",
+        category=issue.category or "General",
+        location=issue.location or "Unknown location"
+    )
+
+    # Save to database
+    ai_annotated_image_url = None
+    annotated_bytes = analysis.get("annotated_image_bytes")
+    if annotated_bytes:
+        try:
+            print("[Cloudinary] Uploading annotated YOLO image for legacy issue...")
+            upload_result = cloudinary.uploader.upload(annotated_bytes)
+            ai_annotated_image_url = upload_result.get("secure_url")
+            print(f"[Cloudinary] Legacy annotated image success! URL: {ai_annotated_image_url}")
+        except Exception as e:
+            print(f"[Cloudinary Error] Legacy annotated upload failed: {e}. Falling back to local.")
+            filename = f"ann_{uuid.uuid4().hex}.jpg"
+            filepath = os.path.join(UPLOAD_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(annotated_bytes)
+            ai_annotated_image_url = f"/uploads/{filename}"
+
+    issue.ai_score = analysis.get("ai_score", issue.ai_score)
+    issue.ai_summary = analysis.get("summary", issue.ai_summary)
+    issue.ai_risk_assessment = analysis.get("risk_assessment", issue.ai_risk_assessment)
+    issue.citizen_impact_score = analysis.get("citizen_impact_score", issue.citizen_impact_score)
+    issue.recommended_action = analysis.get("recommended_action", issue.recommended_action)
+    issue.ai_full_report = analysis.get("full_report", "")
+    issue.ai_annotated_image_url = ai_annotated_image_url or issue.ai_annotated_image_url
+    if analysis.get("yolo_detections"):
+        issue.yolo_detections = analysis.get("yolo_detections")
+    
+    await db.commit()
+
+    return {
+        "issue_id": issue.id,
+        "title": issue.title,
+        "description": issue.description,
+        "category": issue.category,
+        "location": issue.location,
+        "image_url": issue.image_url,
+        "status": issue.status,
+        "priority": analysis.get("priority"),
+        "ai_score": analysis.get("ai_score"),
+        "citizen_impact_score": analysis.get("citizen_impact_score"),
+        "suggested_category": analysis.get("suggested_category"),
+        "summary": analysis.get("summary"),
+        "risk_assessment": analysis.get("risk_assessment"),
+        "recommended_action": analysis.get("recommended_action"),
+        "suggested_sla_hours": analysis.get("suggested_sla_hours"),
+        "full_report": analysis.get("full_report"),
+        "yolo_detections": analysis.get("yolo_detections", []),
+        "ai_annotated_image_url": issue.ai_annotated_image_url,
+        "image_analyzed": image_bytes is not None,
+        "yolo_ran": len(analysis.get("yolo_detections", [])) > 0,
+    }

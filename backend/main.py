@@ -27,6 +27,9 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;"))
         await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;"))
+        await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS yolo_detections JSONB DEFAULT '[]'::jsonb;"))
+        await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_full_report TEXT;"))
+        await conn.execute(text("ALTER TABLE issues ADD COLUMN IF NOT EXISTS ai_annotated_image_url VARCHAR;"))
     print("[PostgreSQL] Tables & columns verified.")
 
     # Pre-seed initial sample data if empty
