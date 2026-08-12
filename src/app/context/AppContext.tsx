@@ -1,17 +1,27 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import {
   signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser
 } from "firebase/auth";
-import {
-  collection, query, orderBy, onSnapshot,
-  addDoc, updateDoc, deleteDoc, doc, serverTimestamp
-} from "firebase/firestore";
-import { auth, db, googleProvider, githubProvider } from "../lib/firebase";
+import { auth, googleProvider, githubProvider } from "../lib/firebase";
 import { getOrCreateUserProfile, UserProfile, updateUserProfile } from "../lib/userService";
 import { logActivity, subscribeToActivities, UserActivity } from "../lib/activityService";
-import { Issue, ISSUES } from "../data/mockData";
+import { Issue, ISSUES, INITIAL_CITY_ROSTERS } from "../data/mockData";
+import { CityRosterOfficer } from "../lib/aiAnalyzerService";
+import { apiClient } from "../lib/apiClient";
+import { realtimeWS } from "../lib/wsClient";
 
 type ThemeName = "default" | "blue-steel";
+
+export interface AppNotification {
+  id: string;
+  type: "team_assigned" | "status_change" | "upvote" | "critical_issue" | "issue_reported";
+  title: string;
+  message: string;
+  icon: string;
+  issueId?: string;
+  createdAt: string;
+  read: boolean;
+}
 
 interface AppContextType {
   user: UserProfile | null;
@@ -19,27 +29,75 @@ interface AppContextType {
   loading: boolean;
   issues: Issue[];
   activities: UserActivity[];
+  notifications: AppNotification[];
   theme: ThemeName;
+  selectedCity: string;
+  setSelectedCity: (city: string) => void;
+  roster: CityRosterOfficer[];
   toggleTheme: () => void;
   loginWithGoogle: () => Promise<void>;
   loginWithGithub: () => Promise<void>;
   logout: () => Promise<void>;
-  addIssue: (issue: Omit<Issue, "id">) => Promise<void>;
+  loginAsAdmin: (adminId: string) => void;
+  loginAsEmployee: (employeeId: string, name?: string) => void;
+  submitSiteArrivalProof: (issueId: string, proof: { imageUrl: string; lat: number; lng: number; locationName?: string }) => Promise<void>;
+  submitResolutionProof: (issueId: string, proof: { imageUrl: string; lat: number; lng: number; locationName?: string }) => Promise<void>;
+  approveResolution: (issueId: string, approved: boolean) => Promise<void>;
+  addIssue: (issue: Omit<Issue, "id">, imageFile?: File | null) => Promise<void>;
   deleteIssue: (id: string) => Promise<void>;
   upvoteIssue: (id: string) => Promise<void>;
   updateIssueStatus: (id: string, status: Issue["status"]) => Promise<void>;
   reportFakeIssue: (id: string, reason: string) => Promise<void>;
   updateProfile: (data: { name?: string; photoURL?: string }) => Promise<void>;
   redeemReward: (cost: number) => Promise<string>;
+  assignTeamToIssue: (issueId: string, teamName: string, officerNames: string[], slaHours?: number) => void;
+  updateOfficerStatus: (officerId: string, status: "on_shift" | "off_duty" | "on_leave") => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
+  clearNotifications: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
+
+const INITIAL_NOTIFICATIONS: AppNotification[] = [];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [issues, setIssues] = useState<Issue[]>(ISSUES);
   const [activities, setActivities] = useState<UserActivity[]>([]);
+  const [selectedCity, setSelectedCity] = useState<string>("Mumbai");
+  const [roster, setRoster] = useState<CityRosterOfficer[]>(INITIAL_CITY_ROSTERS);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    if (typeof window === "undefined") return INITIAL_NOTIFICATIONS;
+    try {
+      const saved = window.localStorage.getItem("urbanEyeNotifications");
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("urbanEyeNotifications", JSON.stringify(notifications));
+    } catch {}
+  }, [notifications]);
+
+  function markNotificationAsRead(id: string) {
+    setNotifications(prev =>
+      prev.map(n => (n.id === id ? { ...n, read: true } : n))
+    );
+  }
+
+  function markAllNotificationsAsRead() {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  }
+
+  function clearNotifications() {
+    setNotifications([]);
+  }
+
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState<ThemeName>(() => {
     if (typeof window === "undefined") return "default";
@@ -47,7 +105,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return saved === "blue-steel" ? "blue-steel" : "default";
   });
 
-  // Apply/remove the theme class on <html> and persist the choice
   useEffect(() => {
     const root = document.documentElement;
     if (theme === "blue-steel") {
@@ -57,22 +114,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       window.localStorage.setItem("urbanEyeTheme", theme);
-    } catch {
-      // localStorage may be unavailable (e.g. private browsing) — ignore
-    }
+    } catch {}
   }, [theme]);
 
   function toggleTheme() {
     setTheme(t => (t === "blue-steel" ? "default" : "blue-steel"));
   }
 
+  // Handle Auth initialization
   useEffect(() => {
+    try {
+      const savedAdmin = window.sessionStorage.getItem("urbanEyeAdminUser");
+      if (savedAdmin) {
+        setUser(JSON.parse(savedAdmin));
+        setLoading(false);
+        return;
+      }
+    } catch {}
+
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       try {
+        const savedAdmin = window.sessionStorage.getItem("urbanEyeAdminUser");
+        if (savedAdmin) {
+          setUser(JSON.parse(savedAdmin));
+          setLoading(false);
+          return;
+        }
+
         if (fbUser) {
           setFirebaseUser(fbUser);
           const profile = await getOrCreateUserProfile(fbUser);
           setUser(profile);
+
+          // Register user in Python PostgreSQL backend and sync points
+          try {
+            const dbRes = await apiClient.post("/auth/register", {
+              uid: fbUser.uid,
+              name: fbUser.displayName || "Citizen",
+              email: fbUser.email,
+              city: "Mumbai"
+            });
+            if (dbRes && typeof dbRes.points === "number") {
+              setUser(u => u ? { ...u, points: dbRes.points } : u);
+            }
+          } catch (e) {
+            console.warn("Backend user registration sync:", e);
+          }
         } else {
           setFirebaseUser(null);
           setUser(null);
@@ -87,28 +174,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
-  // Subscribe to issues
+  // Fetch initial issues from PostgreSQL API and subscribe to WebSocket real-time events
   useEffect(() => {
-    const q = query(collection(db, "issues"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() } as Issue));
-        if (fetched.length > 0) {
+    async function loadBackendIssues() {
+      try {
+        const fetched = await apiClient.get("/issues");
+        if (Array.isArray(fetched)) {
           setIssues(fetched);
-        } else {
-          setIssues(ISSUES);
         }
-      },
-      (error) => {
-        console.warn("Firestore access restricted for issues, using mock data:", error);
-        setIssues(ISSUES);
+      } catch (e) {
+        console.warn("Python FastAPI backend offline or unreachable, using local fallback issues:", e);
       }
-    );
-    return unsub;
-  }, []);
+    }
 
-  // Subscribe to current user's activity feed (for heatmap)
+    loadBackendIssues();
+
+    // Connect WebSocket client
+    const userId = user?.uid || "anonymous";
+    realtimeWS.connect(userId);
+
+    const unsubscribe = realtimeWS.subscribe((event) => {
+      console.log("[WebSocket Event Received]", event);
+      if (event.type === "issue_created" && event.issue) {
+        // Skip if this client created the issue — we already added it optimistically
+        if (pendingTempIds.current.has(event.issue.id)) return;
+        setIssues(prev => {
+          const exists = prev.some(i => i.id === event.issue.id || (i.title === event.issue.title && i.location === event.issue.location));
+          return exists ? prev : [event.issue, ...prev];
+        });
+      } else if (event.type === "issue_deleted" && event.issue_id) {
+        setIssues(prev => prev.filter(i => i.id !== event.issue_id));
+      } else if (event.type === "issue_status_updated") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? { ...i, status: event.status } : i)
+        );
+      } else if (event.type === "issue_upvoted") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? { ...i, votes: event.votes, upvotedBy: event.upvotedBy } : i)
+        );
+      } else if (event.type === "team_assigned") {
+        setIssues(prev =>
+          prev.map(i => i.id === event.issue_id ? {
+            ...i,
+            assignedTeam: {
+              teamName: typeof event.teamName === "string" ? event.teamName : (event.teamName?.teamName || "Assigned Team"),
+              officerNames: Array.isArray(event.officerNames) ? event.officerNames : (event.teamName?.officerNames || []),
+              assignedAt: new Date().toISOString()
+            },
+            slaHours: event.slaHours || i.slaHours
+          } : i)
+        );
+
+        if (event.notification) {
+          setNotifications(prev => [event.notification, ...prev]);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.uid]);
+
+  // Subscribe to current user's activity feed
   useEffect(() => {
     if (!user?.uid) {
       setActivities([]);
@@ -126,35 +254,264 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await signInWithPopup(auth, githubProvider);
   }
 
-  async function logout() {
-    await signOut(auth);
+  async function loginAsAdmin(adminId: string) {
+    try {
+      const res = await apiClient.post("/auth/admin/login", {
+        admin_id: adminId,
+        password: "aryan@8291"
+      });
+      if (res && res.user) {
+        const adminUser: UserProfile = {
+          uid: res.user.uid,
+          name: res.user.name,
+          email: res.user.email,
+          photoURL: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
+          role: "official",
+          points: 9999,
+          level: 99,
+          reportsFiled: 0,
+          reportsResolved: 42,
+          joinedAt: new Date().toISOString(),
+          ward: "City Command HQ"
+        };
+        setUser(adminUser);
+        try {
+          window.sessionStorage.setItem("urbanEyeAdminUser", JSON.stringify(adminUser));
+        } catch {}
+        return;
+      }
+    } catch (e) {
+      console.warn("Backend admin login endpoint fallback:", e);
+    }
+
+    const adminUser: UserProfile = {
+      uid: `admin-${adminId}`,
+      name: `City Admin (${adminId})`,
+      email: `${adminId}@urbaneye.gov`,
+      photoURL: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop",
+      role: "official",
+      points: 0,
+      level: 1,
+      reportsFiled: 0,
+      reportsResolved: 0,
+      joinedAt: new Date().toISOString(),
+      ward: "City Command HQ"
+    };
+    setUser(adminUser);
+    try {
+      window.sessionStorage.setItem("urbanEyeAdminUser", JSON.stringify(adminUser));
+    } catch {}
   }
 
-  async function addIssue(issue: Omit<Issue, "id">) {
-    if (!user) return;
-    const tempId = `issue-${Date.now()}`;
-    const newIssue: Issue = { ...issue, id: tempId };
-    setIssues(prev => [newIssue, ...prev]);
+  async function loginAsEmployee(employeeId: string, name: string = "Field Officer") {
+    const empUser: UserProfile = {
+      uid: `emp-${employeeId}`,
+      name: `${name} (${employeeId})`,
+      email: `${employeeId}@urbaneye.gov`,
+      photoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop",
+      role: "field_employee",
+      points: 0,
+      level: 1,
+      reportsFiled: 0,
+      reportsResolved: 0,
+      joinedAt: new Date().toISOString(),
+      ward: "Field Operations Unit"
+    };
+    setUser(empUser);
+    try {
+      window.sessionStorage.setItem("urbanEyeAdminUser", JSON.stringify(empUser));
+    } catch {}
+  }
 
-    const newPoints = (user.points || 0) + 50;
-    const newReportsFiled = (user.reportsFiled || 0) + 1;
-    setUser(u => u ? { ...u, points: newPoints, reportsFiled: newReportsFiled } : u);
+  async function submitSiteArrivalProof(issueId: string, proof: { imageUrl: string; lat: number; lng: number; locationName?: string }) {
+    const arrivedBy = user?.name || "Field Officer";
+    const arrivedAt = new Date().toISOString();
+
+    setIssues(prev => prev.map(i => {
+      if (i.id !== issueId) return i;
+      return {
+        ...i,
+        status: "in_progress",
+        siteArrivalProof: {
+          imageUrl: proof.imageUrl,
+          lat: proof.lat,
+          lng: proof.lng,
+          locationName: proof.locationName || i.location,
+          arrivedAt,
+          arrivedBy
+        }
+      };
+    }));
+
+    const targetIssue = issues.find(i => i.id === issueId);
+    const newNotif: AppNotification = {
+      id: `notif-arrival-${Date.now()}`,
+      type: "status_change",
+      title: "🚛 Field Team Arrived at Site",
+      message: `${arrivedBy} has reached the location and uploaded site arrival proof for '${targetIssue?.title || "Reported Issue"}'. Status moved to In Progress.`,
+      icon: "🚛",
+      issueId,
+      createdAt: arrivedAt,
+      read: false
+    };
+    setNotifications(prev => [newNotif, ...prev]);
 
     try {
-      const docRef = await addDoc(collection(db, "issues"), {
-        ...issue,
-        reportedBy: user.uid,
-        reportedByName: user.name,
-        createdAt: serverTimestamp()
-      });
-      await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
-      logActivity(user.uid, "issue_reported", `Reported: ${issue.title}`, docRef.id);
-    } catch (err) {
-      console.warn("Firestore error adding issue:", err);
+      apiClient.patch(`/issues/${issueId}/status`, { status: "in_progress" });
+    } catch (e) {
+      console.warn("Backend update error:", e);
     }
   }
 
-  // Deletes the issue doc and deducts 50 points from the poster's profile.
+  async function submitResolutionProof(issueId: string, proof: { imageUrl: string; lat: number; lng: number; locationName?: string }) {
+    const resolvedBy = user?.name || "Field Officer";
+    const resolvedAt = new Date().toISOString();
+
+    setIssues(prev => prev.map(i => {
+      if (i.id !== issueId) return i;
+      return {
+        ...i,
+        status: "pending_approval",
+        resolutionProof: {
+          imageUrl: proof.imageUrl,
+          lat: proof.lat,
+          lng: proof.lng,
+          locationName: proof.locationName || i.location,
+          resolvedAt,
+          resolvedBy,
+          approvedByCitizen: false
+        }
+      };
+    }));
+
+    const targetIssue = issues.find(i => i.id === issueId);
+    const newNotif: AppNotification = {
+      id: `notif-proof-${Date.now()}`,
+      type: "status_change",
+      title: "⏳ Resolution Proof Uploaded - Citizen Verification Required",
+      message: `Field Officer ${resolvedBy} submitted final resolution proof for '${targetIssue?.title || "Reported Issue"}'. Citizen confirmation is required to mark as Resolved.`,
+      icon: "📸",
+      issueId,
+      createdAt: resolvedAt,
+      read: false
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+
+    try {
+      apiClient.patch(`/issues/${issueId}/status`, { status: "pending_approval" });
+    } catch (e) {
+      console.warn("Backend update error:", e);
+    }
+  }
+
+  async function approveResolution(issueId: string, approved: boolean) {
+    const newStatus = approved ? "resolved" : "in_progress";
+
+    setIssues(prev => prev.map(i => {
+      if (i.id !== issueId) return i;
+      return {
+        ...i,
+        status: newStatus,
+        resolutionProof: i.resolutionProof ? {
+          ...i.resolutionProof,
+          approvedByCitizen: approved
+        } : undefined
+      };
+    }));
+
+    const targetIssue = issues.find(i => i.id === issueId);
+    const newNotif: AppNotification = {
+      id: `notif-approve-${Date.now()}`,
+      type: "status_change",
+      title: approved ? "✅ Resolution Approved by Citizen" : "⚠️ Resolution Rejected by Citizen",
+      message: approved
+        ? `Citizen confirmed resolution for '${targetIssue?.title || "Reported Issue"}'. Issue officially moved to Resolved in Kanban.`
+        : `Citizen requested further work on '${targetIssue?.title || "Reported Issue"}'. Moved back to In Progress.`,
+      icon: approved ? "✅" : "⚠️",
+      issueId,
+      createdAt: new Date().toISOString(),
+      read: false
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+
+    try {
+      apiClient.patch(`/issues/${issueId}/status`, { status: newStatus });
+    } catch (e) {
+      console.warn("Backend update error:", e);
+    }
+  }
+
+  async function logout() {
+    try {
+      window.sessionStorage.removeItem("urbanEyeAdminUser");
+    } catch {}
+    setUser(null);
+    setFirebaseUser(null);
+    try {
+      await signOut(auth);
+    } catch {}
+  }
+
+  // Track tempIds that this client created so the WS echo doesn't duplicate them
+  const pendingTempIds = useRef<Set<string>>(new Set());
+
+  async function addIssue(issue: Omit<Issue, "id">, imageFile?: File | null) {
+    const tempId = `iss-${Date.now()}`;
+    const newIssue: Issue = { ...issue, id: tempId };
+    pendingTempIds.current.add(tempId);
+    setIssues(prev => [newIssue, ...prev]);
+
+    if (user) {
+      const newReportsFiled = (user.reportsFiled || 0) + 1;
+      setUser(u => u ? { ...u, reportsFiled: newReportsFiled } : u);
+    }
+
+    const newNotif: AppNotification = {
+      id: `notif-${Date.now()}`,
+      type: "issue_reported",
+      title: "📍 New Civic Report Submitted",
+      message: `Your report "${issue.title}" at ${issue.location} has been registered.`,
+      icon: "📍",
+      issueId: tempId,
+      createdAt: new Date().toISOString(),
+      read: false,
+    };
+    setNotifications(prev => [newNotif, ...prev]);
+
+    // Send to Python FastAPI backend
+    try {
+      const formData = new FormData();
+      formData.append("title", issue.title);
+      formData.append("description", issue.description);
+      formData.append("category", issue.category);
+      formData.append("location", issue.location);
+      if (issue.lat) formData.append("lat", issue.lat.toString());
+      if (issue.lng) formData.append("lng", issue.lng.toString());
+      formData.append("city", issue.city || selectedCity || "Mumbai");
+      formData.append("reporter_id", user?.uid || "anonymous");
+      formData.append("reporter_name", user?.name || "Anonymous Citizen");
+      if (imageFile) {
+        formData.append("image", imageFile);
+      }
+
+      const created = await apiClient.postFormData("/issues", formData);
+      if (created && created.id) {
+        // Mark the real backend ID so the WebSocket echo is ignored
+        pendingTempIds.current.add(created.id);
+        // Replace temp local copy with backend response
+        setIssues(prev => prev.map(i => i.id === tempId ? created : i));
+        // Clean up after a short delay (WS echo arrives within ms)
+        setTimeout(() => {
+          pendingTempIds.current.delete(created.id);
+          pendingTempIds.current.delete(tempId);
+        }, 5000);
+      }
+    } catch (err) {
+      console.warn("Backend error adding issue:", err);
+      pendingTempIds.current.delete(tempId);
+    }
+  }
+
   async function deleteIssue(id: string) {
     if (!user) return;
     const issue = issues.find(i => i.id === id);
@@ -163,98 +520,149 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const newPoints = Math.max(0, (user.points || 0) - 50);
     const newReportsFiled = Math.max(0, (user.reportsFiled || 0) - 1);
     setUser(u => u ? { ...u, points: newPoints, reportsFiled: newReportsFiled } : u);
+    logActivity(user.uid, "issue_deleted", `Deleted report: ${issue?.title ?? id}`, id);
 
     try {
-      await deleteDoc(doc(db, "issues", id));
-      await updateUserProfile(user.uid, { points: newPoints, reportsFiled: newReportsFiled });
-      logActivity(user.uid, "issue_deleted", `Deleted: ${issue?.title || "an issue"}`, id);
+      await apiClient.delete(`/issues/${id}`);
     } catch (err) {
-      console.warn("Firestore error deleting issue:", err);
+      console.warn("Backend error deleting issue:", err);
     }
   }
 
   async function upvoteIssue(id: string) {
     if (!user) return;
-    const current = issues.find(i => i.id === id);
-    if (!current) return;
-
-    setIssues(prev => prev.map(i => i.id === id ? { ...i, votes: (i.votes || 0) + 1 } : i));
+    let didUpvote = false;
+    setIssues(prev => prev.map(i => {
+      if (i.id !== id) return i;
+      const upvoted = (i.upvotedBy || []).includes(user.uid);
+      didUpvote = !upvoted;
+      const newUpvoted = upvoted
+        ? (i.upvotedBy || []).filter(u => u !== user.uid)
+        : [...(i.upvotedBy || []), user.uid];
+      const newVotes = upvoted ? Math.max(0, i.votes - 1) : i.votes + 1;
+      return { ...i, votes: newVotes, upvotedBy: newUpvoted };
+    }));
+    if (didUpvote) {
+      logActivity(user.uid, "issue_upvoted", `Upvoted issue`, id);
+    }
 
     try {
-      const ref = doc(db, "issues", id);
-      await updateDoc(ref, { votes: (current.votes || 0) + 1 });
-      logActivity(user.uid, "issue_upvoted", `Upvoted: ${current.title}`, id);
+      const formData = new FormData();
+      formData.append("user_id", user.uid);
+      await apiClient.patchFormData(`/issues/${id}/upvote`, formData);
     } catch (err) {
-      console.warn("Firestore error upvoting issue:", err);
+      console.warn("Backend error upvoting issue:", err);
     }
   }
 
   async function updateIssueStatus(id: string, status: Issue["status"]) {
-    if (!user) return;
     setIssues(prev => prev.map(i => i.id === id ? { ...i, status } : i));
-    const issue = issues.find(i => i.id === id);
-
+    if (user) {
+      logActivity(user.uid, "status_changed", `Status changed to ${status}`, id);
+    }
     try {
-      await updateDoc(doc(db, "issues", id), { status });
-      logActivity(user.uid, "status_changed", `Changed status to ${status.replace("_", " ")}: ${issue?.title || "an issue"}`, id);
+      await apiClient.patch(`/issues/${id}/status`, { status });
     } catch (err) {
-      console.warn("Firestore error updating status:", err);
+      console.warn("Backend error updating status:", err);
     }
   }
 
   async function reportFakeIssue(id: string, reason: string) {
-    const current = issues.find(i => i.id === id);
-    if (!current) return;
-
+    setIssues(prev => prev.map(i => i.id === id ? { ...i, flaggedFake: true, flaggedReason: reason } : i));
     try {
-      const ref = doc(db, "issues", id);
-      const reports = (current as any).fakeReports || [];
-      await updateDoc(ref, {
-        fakeReports: [...reports, { by: user?.uid, reason, at: new Date().toISOString() }]
-      });
-      if (user) logActivity(user.uid, "fake_reported", `Reported fake: ${current.title}`, id);
+      await apiClient.post(`/issues/${id}/flag-fake`, { reason });
     } catch (err) {
-      console.warn("Firestore error reporting fake issue:", err);
+      console.warn("Backend error flagging issue:", err);
     }
   }
 
   async function updateProfile(data: { name?: string; photoURL?: string }) {
     if (!user) return;
-    setUser(u => u ? { ...u, ...data } : u);
-
+    setUser(u => u ? { ...u, name: data.name ?? u.name, photoURL: data.photoURL ?? u.photoURL } : u);
     try {
-      await updateUserProfile(user.uid, data);
-      logActivity(user.uid, "profile_updated", "Updated profile");
+      await apiClient.patch(`/auth/profile/${user.uid}`, {
+        name: data.name,
+        photo_url: data.photoURL
+      });
     } catch (err) {
-      console.warn("Firestore error updating profile:", err);
+      console.warn("Backend error updating profile:", err);
     }
   }
 
   async function redeemReward(cost: number): Promise<string> {
-    if (!user) throw new Error("You need to sign in to redeem rewards.");
-    if ((user.points || 0) < cost) throw new Error("Not enough points to redeem this reward.");
-    const code = `URB-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const newPoints = user.points - cost;
+    if (!user) throw new Error("Not logged in");
+    if ((user.points || 0) < cost) throw new Error("Insufficient civic points");
+    const newPoints = (user.points || 0) - cost;
     setUser(u => u ? { ...u, points: newPoints } : u);
+    const voucherCode = `URBAN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    return voucherCode;
+  }
+
+  function assignTeamToIssue(issueId: string, teamName: string, officerNames: string[], slaHours: number = 24) {
+    setIssues(prev => prev.map(i => {
+      if (i.id !== issueId) return i;
+      return {
+        ...i,
+        assignedTeam: {
+          teamName,
+          officerNames,
+          assignedAt: new Date().toISOString()
+        },
+        slaHours
+      };
+    }));
 
     try {
-      await updateUserProfile(user.uid, { points: newPoints });
-      logActivity(user.uid, "reward_redeemed", `Redeemed reward for ${cost} points`);
+      apiClient.patch(`/issues/${issueId}/team`, {
+        team_name: teamName,
+        officer_names: officerNames,
+        sla_hours: slaHours
+      });
     } catch (err) {
-      console.warn("Firestore error redeeming reward:", err);
+      console.warn("Backend error assigning team:", err);
     }
+  }
 
-    return code;
+  function updateOfficerStatus(officerId: string, status: "on_shift" | "off_duty" | "on_leave") {
+    setRoster(prev => prev.map(o => o.id === officerId ? { ...o, status } : o));
   }
 
   return (
-    <AppContext.Provider value={{
-      user, firebaseUser, loading, issues, activities,
-      theme, toggleTheme,
-      loginWithGoogle, loginWithGithub, logout,
-      addIssue, deleteIssue, upvoteIssue, updateIssueStatus,
-      reportFakeIssue, updateProfile, redeemReward
-    }}>
+    <AppContext.Provider
+      value={{
+        user,
+        firebaseUser,
+        loading,
+        issues,
+        activities,
+        notifications,
+        theme,
+        selectedCity,
+        setSelectedCity,
+        roster,
+        toggleTheme,
+        loginWithGoogle,
+        loginWithGithub,
+        logout,
+        loginAsAdmin,
+        loginAsEmployee,
+        submitSiteArrivalProof,
+        submitResolutionProof,
+        approveResolution,
+        addIssue,
+        deleteIssue,
+        upvoteIssue,
+        updateIssueStatus,
+        reportFakeIssue,
+        updateProfile,
+        redeemReward,
+        assignTeamToIssue,
+        updateOfficerStatus,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

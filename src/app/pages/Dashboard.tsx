@@ -165,7 +165,7 @@ const DeleteModal: React.FC<DeleteModalProps> = ({ issue, onClose, onConfirm }) 
 
       <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 mb-5">
         <p className="text-xs text-rose-300 leading-relaxed">
-          Deleting this report will <strong>deduct 50 civic points</strong> from your account. This action cannot be undone.
+          This will permanently delete the report. This action cannot be undone.
         </p>
       </div>
 
@@ -194,7 +194,7 @@ interface IssueCardProps {
 }
 
 const LocalIssueCard: React.FC<IssueCardProps> = ({ issue }) => {
-  const { upvoteIssue, updateIssueStatus, reportFakeIssue, deleteIssue, user } = useApp();
+  const { upvoteIssue, updateIssueStatus, approveResolution, reportFakeIssue, deleteIssue, user } = useApp();
   const [isExpanded, setIsExpanded] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [comments, setComments] = useState<string[]>([
@@ -441,7 +441,39 @@ const LocalIssueCard: React.FC<IssueCardProps> = ({ issue }) => {
                   <p className="text-slate-400">
                     <strong>Coordinates:</strong> {issue.lat.toFixed(4)}, {issue.lng.toFixed(4)}
                   </p>
-                </div>
+                {issue.status === "pending_approval" && (
+                  <div className="p-3.5 bg-purple-500/10 rounded-xl border border-purple-500/25 space-y-2.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-purple-300">
+                      <span>📸</span> Field Officer Uploaded Final Resolution Proof
+                    </div>
+                    {issue.resolutionProof && (
+                      <div className="flex items-center gap-3 bg-black/40 p-2 rounded-lg border border-purple-500/20">
+                        <img src={issue.resolutionProof.imageUrl} alt="Final Proof" className="w-16 h-12 rounded object-cover" />
+                        <div className="text-[11px] text-slate-300">
+                          <div><strong className="text-purple-300">Resolved by:</strong> {issue.resolutionProof.resolvedBy}</div>
+                          <div className="text-[10px] text-slate-400">📍 {issue.resolutionProof.locationName}</div>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-300 leading-snug">
+                      Please confirm if the problem on site has been completely solved to your satisfaction.
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => approveResolution(issue.id, true)}
+                        className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md"
+                      >
+                        ✓ Confirm & Move to Resolved
+                      </button>
+                      <button
+                        onClick={() => approveResolution(issue.id, false)}
+                        className="py-2 px-3 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 text-xs font-bold transition-all"
+                      >
+                        ✕ Reject
+                      </button>
+                    </div>
+                  </div>
+                )}</div>
 
                 {issue.status !== "resolved" && (
                   <button

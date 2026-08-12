@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, CartesianGrid
 } from "recharts";
 import {
-  MapPin, Calendar, Star, TrendingUp, Shield, Award,
+  MapPin, Calendar, TrendingUp, Shield, Award,
   Edit3, CheckCircle2, Clock, MoreVertical, Trash2, Pencil, X, AlertTriangle
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -58,42 +58,44 @@ function toLocalDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Build 52-week × 7-day heatmap grid from the user's activity log. */
+/** Build 52-week × 7-day heatmap grid from the user's activity log.
+ *  TODAY is always the last (rightmost) cell so contributions appear immediately. */
 function buildHeatmapFromActivities(activities: UserActivity[]): { grid: HeatmapEntry[]; monthLabels: { label: string; weekIdx: number }[] } {
-  const today = new Date();
-  today.setHours(23, 59, 59, 999); // include all of today
-
-  // Start of heatmap: 52 weeks ago, aligned to the most recent Sunday
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay()); // most recent Sunday
-  const heatmapStart = new Date(startOfWeek);
-  heatmapStart.setDate(heatmapStart.getDate() - 51 * 7); // go back 51 more weeks
-  heatmapStart.setHours(0, 0, 0, 0);
-
   // Count activities per local calendar date
   const countMap = new Map<string, number>();
   for (const act of activities) {
-    // Each activity has a `date` field in YYYY-MM-DD format
     const key = act.date;
     if (key) countMap.set(key, (countMap.get(key) || 0) + 1);
   }
+
+  const today = new Date();
+  const todayKey = toLocalDateKey(today);
+
+  // Anchor: today sits in the LAST column (week 51), at its day-of-week row.
+  // Walk backward to find the Sunday that starts week 51.
+  const todayDow = today.getDay(); // 0=Sun … 6=Sat
+  const lastSunday = new Date(today);
+  lastSunday.setDate(today.getDate() - todayDow);
+  lastSunday.setHours(0, 0, 0, 0);
+
+  // Grid start = 51 weeks before lastSunday
+  const heatmapStart = new Date(lastSunday);
+  heatmapStart.setDate(lastSunday.getDate() - 51 * 7);
 
   const grid: HeatmapEntry[] = [];
   const monthLabels: { label: string; weekIdx: number }[] = [];
   const seenMonths = new Set<string>();
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-  const now = new Date();
-
   for (let week = 0; week < 52; week++) {
     for (let day = 0; day < 7; day++) {
       const cellDate = new Date(heatmapStart);
       cellDate.setDate(heatmapStart.getDate() + week * 7 + day);
 
-      // Don't include future dates
-      const isFuture = cellDate > now && toLocalDateKey(cellDate) !== toLocalDateKey(now);
-
       const key = toLocalDateKey(cellDate);
+      // Future cells (strictly after today) are dimmed
+      const isFuture = key > todayKey;
+
       grid.push({
         week,
         day,
@@ -101,7 +103,7 @@ function buildHeatmapFromActivities(activities: UserActivity[]): { grid: Heatmap
         date: new Date(cellDate),
       });
 
-      // Month labels: mark the first time we see a new month
+      // Month label on the first day (Sunday) of each new month
       const monthKey = `${cellDate.getFullYear()}-${cellDate.getMonth()}`;
       if (!seenMonths.has(monthKey) && day === 0) {
         seenMonths.add(monthKey);
@@ -130,6 +132,10 @@ function HeatmapCell({ entry }: { entry: HeatmapEntry }) {
     return <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: "transparent" }} />;
   }
 
+  const todayKey = toLocalDateKey(new Date());
+  const cellKey = toLocalDateKey(entry.date);
+  const isToday = cellKey === todayKey;
+
   const bg = HEATMAP_COLORS[Math.min(entry.count, 5)];
   const dateStr = entry.date.toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric", year: "numeric",
@@ -142,7 +148,11 @@ function HeatmapCell({ entry }: { entry: HeatmapEntry }) {
     <div className="relative">
       <div
         className="w-2.5 h-2.5 rounded-sm cursor-pointer transition-transform hover:scale-150"
-        style={{ backgroundColor: bg }}
+        style={{
+          backgroundColor: bg,
+          outline: isToday ? "1.5px solid rgba(255,255,255,0.7)" : undefined,
+          outlineOffset: isToday ? "1px" : undefined,
+        }}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       />
@@ -607,11 +617,196 @@ export default function Profile() {
   const navigate = useNavigate();
   const [editProfileOpen, setEditProfileOpen] = useState(false);
 
-  if (!user) return null;
+  // Redirect to login if user becomes null (e.g. after logout)
+  useEffect(() => {
+    if (!user) navigate("/");
+  }, [user, navigate]);
+
+  if (!user) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 32, height: 32, border: "3px solid rgba(59,130,246,0.3)", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+
+  const isAdmin = user.role === "official" || user.role === "ward";
+
+
+  // ── ADMIN PROFILE VIEW ───────────────────────────────────────────────────────
+  if (isAdmin) {
+    const adminAvatarUrl =
+      user.photoURL ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=8B5CF6&color=fff&size=100`;
+
+    const assignedIssues  = issues.filter(i => i.assignedTeam);
+    const resolvedIssues  = issues.filter(i => i.status === "resolved");
+    const criticalIssues  = issues.filter(i => i.aiPriorityLevel === "critical" && i.status !== "resolved");
+    const overdueIssues   = issues.filter(i => i.slaDeadline && new Date(i.slaDeadline) < new Date() && i.status !== "resolved");
+
+    return (
+      <div style={{ minHeight: "100vh", paddingTop: "5.5rem", paddingBottom: "3rem", fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 1.5rem" }}>
+          {/* Admin Header Card */}
+          <div style={{
+            background: "linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(59,130,246,0.06) 100%)",
+            border: "1px solid rgba(139,92,246,0.25)", borderRadius: 20,
+            padding: "2rem", marginBottom: "1.5rem", position: "relative", overflow: "hidden",
+          }}>
+            <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(139,92,246,0.06)" }} />
+            <div style={{ position: "absolute", top: 10, right: 20, width: 90, height: 90, borderRadius: "50%", border: "1px solid rgba(139,92,246,0.1)" }} />
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", position: "relative", zIndex: 2 }}>
+              <div style={{ position: "relative" }}>
+                <img src={adminAvatarUrl} alt={user.name}
+                  style={{ width: 80, height: 80, borderRadius: 16, objectFit: "cover", border: "3px solid rgba(139,92,246,0.5)" }} />
+                <div style={{
+                  position: "absolute", bottom: -6, right: -6, width: 22, height: 22,
+                  background: "linear-gradient(135deg, #8B5CF6, #3B82F6)", borderRadius: 6,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11, border: "2px solid #050816",
+                }}>🛡️</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                  <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, fontWeight: 700, color: "#fff", margin: 0 }}>
+                    {user.name}
+                  </h1>
+                  <span style={{
+                    padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                    background: "rgba(139,92,246,0.2)", color: "#a78bfa",
+                    border: "1px solid rgba(139,92,246,0.3)", textTransform: "uppercase", letterSpacing: "0.5px",
+                  }}>
+                    City Administrator
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: "0 0 8px" }}>{user.email}</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 5 }}>
+                    🏛️ {user.ward || "City Command HQ"}
+                  </span>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", display: "flex", alignItems: "center", gap: 5 }}>
+                    📅 Active since {new Date(user.joinedAt || Date.now()).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => { navigate("/"); logout(); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "8px 16px", borderRadius: 10,
+                  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)",
+                  color: "#f87171", fontSize: 12, fontWeight: 500, cursor: "pointer",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+
+          {/* Admin Stats Grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: "1.5rem" }}>
+            {[
+              { label: "Total Issues", value: issues.length, icon: "📋", color: "#60a5fa" },
+              { label: "Assigned", value: assignedIssues.length, icon: "👮", color: "#34d399" },
+              { label: "Critical Active", value: criticalIssues.length, icon: "🚨", color: "#ff6b6b" },
+              { label: "Overdue SLA", value: overdueIssues.length, icon: "⏰", color: "#fb923c" },
+            ].map((stat) => (
+              <div key={stat.label} style={{
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 14, padding: "16px 18px",
+              }}>
+                <div style={{ fontSize: 22, marginBottom: 8 }}>{stat.icon}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: stat.color, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {stat.value}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {stat.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent Assigned Issues */}
+          <div style={{
+            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 16, overflow: "hidden", marginBottom: "1.5rem",
+          }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "#fff", margin: 0 }}>Recently Dispatched Issues</h3>
+            </div>
+            {assignedIssues.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+                No issues have been dispatched yet. Go to the AI Command Center to assign teams.
+              </div>
+            ) : (
+              assignedIssues.slice(0, 5).map(issue => {
+                const isOverdue = issue.slaDeadline && new Date(issue.slaDeadline) < new Date();
+                return (
+                  <div key={issue.id} style={{
+                    display: "flex", alignItems: "center", gap: 14, padding: "12px 20px",
+                    borderBottom: "1px solid rgba(255,255,255,0.03)",
+                  }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                      background: isOverdue ? "#ef4444" : issue.status === "resolved" ? "#10b981" : "#f59e0b",
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {issue.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
+                        {issue.assignedTeam?.teamName} · {issue.location}
+                      </div>
+                    </div>
+                    <span style={{
+                      padding: "3px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600,
+                      textTransform: "uppercase", letterSpacing: "0.3px",
+                      background: isOverdue ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.06)",
+                      color: isOverdue ? "#f87171" : "rgba(255,255,255,0.45)",
+                    }}>
+                      {isOverdue ? "Overdue" : issue.status.replace("_", " ")}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Quick Links */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <a href="/admin" style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "16px 20px",
+              background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)",
+              borderRadius: 14, textDecoration: "none",
+            }}>
+              <div style={{ fontSize: 24 }}>🤖</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#a78bfa" }}>AI Command Center</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>Analyze issues & dispatch teams</div>
+              </div>
+            </a>
+            <a href="/kanban" style={{
+              display: "flex", alignItems: "center", gap: 12, padding: "16px 20px",
+              background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+              borderRadius: 14, textDecoration: "none",
+            }}>
+              <div style={{ fontSize: 24 }}>📊</div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#60a5fa" }}>Issue Kanban Board</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>Manage & update issue statuses</div>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const avatarUrl =
     user.photoURL ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=1E6BE6&color=fff&size=100`;
+
 
   const myIssues = issues.filter(
     i => i.reportedBy === user.uid || i.reportedBy === user.name
@@ -679,10 +874,41 @@ export default function Profile() {
     return data;
   }, [myIssues]);
 
-  // Build heatmap from user's activity log (reports, upvotes, status changes, etc.)
+  // Build heatmap: merge Firestore activity logs + synthetic entries from actual issues
+  // This ensures past reports show up even if logActivity was not called when they were created
+  const mergedActivities = useMemo<UserActivity[]>(() => {
+    const synth: UserActivity[] = myIssues
+      .filter(i => i.reportedAt || (i as any).createdAt)
+      .map(i => {
+        const raw = i.reportedAt || (i as any).createdAt;
+        const d: Date = raw?.toDate ? raw.toDate() : new Date(raw);
+        const toKey = (dt: Date) =>
+          `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+        return {
+          id: `synth-${i.id}`,
+          uid: user.uid,
+          type: "issue_reported" as const,
+          label: `Reported: ${i.title}`,
+          date: toKey(d),
+          timestamp: d.toISOString(),
+          issueId: i.id,
+        };
+      });
+
+    // Deduplicate: prefer real Firestore activities, fill gaps with synthetic ones
+    const firestoreIssueIds = new Set(
+      activities.filter(a => a.type === "issue_reported").map(a => a.issueId)
+    );
+    const deduped = [
+      ...activities,
+      ...synth.filter(s => !firestoreIssueIds.has(s.issueId)),
+    ];
+    return deduped;
+  }, [activities, myIssues, user.uid]);
+
   const { grid: heatmapGrid, monthLabels } = useMemo(
-    () => buildHeatmapFromActivities(activities),
-    [activities]
+    () => buildHeatmapFromActivities(mergedActivities),
+    [mergedActivities]
   );
   const totalContributions = useMemo(
     () => heatmapGrid.reduce((sum, e) => sum + Math.max(0, e.count), 0),
@@ -701,7 +927,6 @@ export default function Profile() {
     { label: "Resolved",        value: reportsResolved,                             icon: CheckCircle2, color: "#10b981" },
     { label: "In Progress",     value: inProgress.length,                           icon: Clock,        color: "#f59e0b" },
     { label: "Resolution Rate", value: `${resolutionRate}%`,                        icon: TrendingUp,   color: "#8b5cf6" },
-    { label: "Civic Points",    value: user.points.toLocaleString(),                icon: Star,         color: "#f59e0b" },
     { label: "Badges Earned",   value: badges.filter(b => b.unlocked).length,       icon: Award,        color: "#06b6d4" },
   ];
 

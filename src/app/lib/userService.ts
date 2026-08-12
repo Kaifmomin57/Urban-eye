@@ -1,5 +1,3 @@
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "./firebase";
 import { User as FirebaseUser } from "firebase/auth";
 
 export interface UserProfile {
@@ -7,7 +5,7 @@ export interface UserProfile {
   name: string;
   email: string;
   photoURL: string;
-  role: "citizen" | "ward" | "official";
+  role: "citizen" | "ward" | "official" | "field_employee";
   points: number;
   level: number;
   reportsFiled: number;
@@ -17,7 +15,7 @@ export interface UserProfile {
 }
 
 export async function getOrCreateUserProfile(firebaseUser: FirebaseUser): Promise<UserProfile> {
-  const fallbackProfile: UserProfile = {
+  const profile: UserProfile = {
     uid: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "New Citizen",
     email: firebaseUser.email || "",
@@ -30,28 +28,9 @@ export async function getOrCreateUserProfile(firebaseUser: FirebaseUser): Promis
     joinedAt: new Date().toISOString(),
     ward: "Ward 1"
   };
-
-  try {
-    const userRef = doc(db, "users", firebaseUser.uid);
-    const snap = await getDoc(userRef);
-
-    if (snap.exists()) {
-      return snap.data() as UserProfile;
-    }
-
-    await setDoc(userRef, fallbackProfile);
-    return fallbackProfile;
-  } catch (err) {
-    console.warn("Firestore access error in getOrCreateUserProfile, using fallback profile:", err);
-    return fallbackProfile;
-  }
+  return profile;
 }
 
-export async function updateUserProfile(uid: string, data: Partial<UserProfile>) {
-  try {
-    const userRef = doc(db, "users", uid);
-    await updateDoc(userRef, data);
-  } catch (err) {
-    console.warn("Firestore access error in updateUserProfile:", err);
-  }
+export async function updateUserProfile(_uid: string, _data: Partial<UserProfile>) {
+  // Local profile state management only
 }

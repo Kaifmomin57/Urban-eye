@@ -7,6 +7,7 @@ import {
 } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { useApp } from "../context/AppContext";
+import DemoOne from "@/components/ui/demo";
 
 type Tab = "login" | "signup";
 type Role = "citizen" | "ward" | "official";
@@ -173,6 +174,63 @@ function ErrorBox({ msg }: { msg: string }) {
   );
 }
 
+// ── Marquee Button with 3D animation background ──────────────────────────────
+function MarqueeButton({
+  onClick, disabled, submitting, icon, label, bg = "#1E6BE6"
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  submitting?: boolean;
+  icon: string;
+  label: string;
+  bg?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || submitting}
+      style={{
+        width: "100%",
+        marginTop: "1.25rem",
+        padding: 13,
+        position: "relative",
+        overflow: "hidden",
+        background: bg.includes("gradient")
+          ? bg.replace(/rgba?\([^)]+\)/g, (m) => m.replace(/,[\s]*[\d.]+\)/, ", 0.25)"))
+          : "rgba(30, 107, 230, 0.18)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: "1px solid rgba(255,255,255,0.18)",
+        borderRadius: 10,
+        color: "#fff",
+        fontSize: 14,
+        fontWeight: 600,
+        fontFamily: "'Inter',sans-serif",
+        cursor: disabled || submitting ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        opacity: disabled || submitting ? 0.6 : 1,
+        boxShadow: "0 4px 24px rgba(30,107,230,0.25), inset 0 1px 0 rgba(255,255,255,0.12)",
+        transition: "all 0.2s ease",
+      }}
+      onMouseEnter={e => { if (!disabled && !submitting) { (e.currentTarget as HTMLButtonElement).style.background = bg.includes("gradient") ? "rgba(30,107,230,0.32)" : "rgba(30,107,230,0.28)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 6px 30px rgba(30,107,230,0.4), inset 0 1px 0 rgba(255,255,255,0.2)"; } }}
+      onMouseLeave={e => { if (!disabled && !submitting) { (e.currentTarget as HTMLButtonElement).style.background = bg.includes("gradient") ? "rgba(30,107,230,0.18)" : "rgba(30,107,230,0.18)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 24px rgba(30,107,230,0.25), inset 0 1px 0 rgba(255,255,255,0.12)"; } }}
+    >
+      <div style={{ position: "absolute", inset: 0, opacity: 0.3, pointerEvents: "none", zIndex: 0 }}>
+        <DemoOne />
+      </div>
+      {/* Glass sheen highlight */}
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "50%", background: "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%)", borderRadius: "10px 10px 0 0", zIndex: 1, pointerEvents: "none" }} />
+      <span style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", gap: 8, textShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>
+        <i className={`ti ${submitting ? "ti-loader-2" : icon}`} aria-hidden="true" style={submitting ? { animation: "spin 1s linear infinite" } : {}} />
+        {submitting ? "Processing…" : label}
+      </span>
+    </button>
+  );
+}
+
 // ── LOGIN FORM ────────────────────────────────────────────────────────────────
 function LoginForm({ onSwitch, onLogin, onGoogle, onGithub, email, setEmail, password, setPassword, error, submitting }: {
   onSwitch: () => void; onLogin: () => void; onGoogle: () => void; onGithub: () => void;
@@ -198,13 +256,13 @@ function LoginForm({ onSwitch, onLogin, onGoogle, onGithub, email, setEmail, pas
         </label>
         <a href="#" style={{ fontSize: 12, color: "#6AABFF", textDecoration: "none" }}>Forgot password?</a>
       </div>
-      <button onClick={onLogin} disabled={submitting}
-        style={{ width: "100%", marginTop: "1.25rem", padding: 13, background: submitting ? "#1A4FA0" : "#1E6BE6", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: submitting ? 0.7 : 1 }}
-        onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLButtonElement).style.background = "#1A5CC8"; }}
-        onMouseLeave={e => { if (!submitting) (e.currentTarget as HTMLButtonElement).style.background = "#1E6BE6"; }}>
-        <i className={`ti ${submitting ? "ti-loader-2" : "ti-login"}`} aria-hidden="true" style={submitting ? { animation: "spin 1s linear infinite" } : {}} />
-        {submitting ? "Signing in…" : "Sign in to dashboard"}
-      </button>
+      <MarqueeButton
+        onClick={onLogin}
+        disabled={submitting}
+        submitting={submitting}
+        icon="ti-login"
+        label="Sign in to dashboard"
+      />
       <Divider label="or continue with" />
       <SocialButtons onGoogle={onGoogle} onGithub={onGithub} disabled={submitting} />
       <p style={{ textAlign: "center", marginTop: "1.5rem", fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
@@ -216,59 +274,34 @@ function LoginForm({ onSwitch, onLogin, onGoogle, onGithub, email, setEmail, pas
 }
 
 // ── SIGNUP FORM ───────────────────────────────────────────────────────────────
-function SignupForm({ onSwitch, onSignup, onGoogle, onGithub, email, setEmail, password, setPassword, error, submitting }: {
-  onSwitch: () => void; onSignup: (fn: string, ln: string) => void; onGoogle: () => void; onGithub: () => void;
+function SignupForm({ onSwitch, onSignup, email, setEmail, password, setPassword, error, submitting }: {
+  onSwitch: () => void; onSignup: (name: string) => void;
   email: string; setEmail: (v: string) => void; password: string; setPassword: (v: string) => void;
   error: string; submitting: boolean;
 }) {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName]   = useState("");
-  const [phone, setPhone]         = useState("");
-  const [role, setRole]           = useState<Role>("citizen");
-
-  const roles: { key: Role; icon: string; label: string }[] = [
-    { key: "citizen", icon: "ti-user-check",         label: "Citizen"  },
-    { key: "ward",    icon: "ti-building-community",  label: "Ward rep" },
-    { key: "official",icon: "ti-shield",              label: "Official" },
-  ];
+  const [name, setName] = useState("");
 
   return (
     <>
       <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 22, fontWeight: 700, color: "#fff", margin: "0 0 4px" }}>Join Urban Eye</h2>
       <p style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", margin: "0 0 1.75rem", lineHeight: 1.5 }}>Become a civic changemaker in your ward</p>
       {error && <ErrorBox msg={error} />}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: "1rem" }}>
-        <FieldGroup label="First name"><FieldInput icon="ti-user" placeholder="Arun"   value={firstName} onChange={setFirstName} /></FieldGroup>
-        <FieldGroup label="Last name"> <FieldInput icon="ti-user" placeholder="Sharma" value={lastName}  onChange={setLastName}  /></FieldGroup>
-      </div>
-      <FieldGroup label="Email">           <FieldInput icon="ti-mail"  type="email" placeholder="you@example.com"   value={email}    onChange={setEmail}    /></FieldGroup>
-      <FieldGroup label="Phone (optional)"><FieldInput icon="ti-phone" type="tel"   placeholder="+91 98765 43210" value={phone}    onChange={setPhone}    /></FieldGroup>
+      <FieldGroup label="Full Name"><FieldInput icon="ti-user" placeholder="Arun Sharma" value={name} onChange={setName} /></FieldGroup>
+      <FieldGroup label="Email"><FieldInput icon="ti-mail" type="email" placeholder="you@example.com" value={email} onChange={setEmail} /></FieldGroup>
       <FieldGroup label="Password">
         <FieldInput icon="ti-lock" type="password" placeholder="Min. 8 characters" value={password} onChange={setPassword} />
         <PasswordStrengthBar password={password} />
       </FieldGroup>
-      <div style={{ marginBottom: "1rem" }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: "rgba(255,255,255,0.5)", letterSpacing: "0.5px", marginBottom: 8 }}>I am a...</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {roles.map(({ key, icon, label }) => (
-            <button key={key} onClick={() => setRole(key)}
-              style={{ flex: 1, padding: "8px 6px", border: `1px solid ${role === key ? "#1E6BE6" : "rgba(255,255,255,0.08)"}`, borderRadius: 8, background: role === key ? "rgba(30,107,230,0.12)" : "rgba(255,255,255,0.04)", color: role === key ? "#6AABFF" : "rgba(255,255,255,0.4)", fontSize: 12, fontFamily: "'Inter',sans-serif", fontWeight: 500, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s" }}>
-              <i className={`ti ${icon}`} aria-hidden="true" style={{ fontSize: 18 }} />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <button onClick={() => onSignup(firstName, lastName)} disabled={submitting}
-        style={{ width: "100%", marginTop: "1.25rem", padding: 13, background: submitting ? "#1A4FA0" : "#1E6BE6", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: submitting ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: submitting ? 0.7 : 1 }}
-        onMouseEnter={e => { if (!submitting) (e.currentTarget as HTMLButtonElement).style.background = "#1A5CC8"; }}
-        onMouseLeave={e => { if (!submitting) (e.currentTarget as HTMLButtonElement).style.background = "#1E6BE6"; }}>
-        <i className={`ti ${submitting ? "ti-loader-2" : "ti-user-plus"}`} aria-hidden="true" style={submitting ? { animation: "spin 1s linear infinite" } : {}} />
-        {submitting ? "Creating account…" : "Create account"}
-      </button>
-      <Divider label="or register with" />
-      <SocialButtons onGoogle={onGoogle} onGithub={onGithub} disabled={submitting} padding={11} />
-      <p style={{ textAlign: "center", marginTop: "1rem", fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
+      
+      <MarqueeButton
+        onClick={() => onSignup(name)}
+        disabled={submitting}
+        submitting={submitting}
+        icon="ti-user-plus"
+        label="Create account"
+      />
+      
+      <p style={{ textAlign: "center", marginTop: "1.5rem", fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
         Already a member?{" "}
         <button onClick={onSwitch} style={{ background: "none", border: "none", color: "#6AABFF", fontSize: 13, fontWeight: 500, cursor: "pointer", padding: 0, fontFamily: "'Inter',sans-serif" }}>Sign in</button>
       </p>
@@ -276,7 +309,121 @@ function SignupForm({ onSwitch, onSignup, onGoogle, onGithub, email, setEmail, p
   );
 }
 
-// ── MAIN AUTH PAGE ────────────────────────────────────────────────────────────
+// ── CITY ADMIN & EMPLOYEE LOGIN FORM ───────────────────────────────────────
+function AdminLoginForm({ onAdminLogin, onEmployeeLogin, submitting, error }: {
+  onAdminLogin: (adminId: string, pass: string) => void;
+  onEmployeeLogin: (employeeId: string, empName: string, pass: string) => void;
+  submitting: boolean;
+  error: string;
+}) {
+  const [mode, setMode] = useState<"admin" | "employee">("admin");
+  const [adminId, setAdminId] = useState("aryan8291");
+  const [adminPassword, setAdminPassword] = useState("aryan@8291");
+
+  const [employeeId, setEmployeeId] = useState("emp101");
+  const [employeeName, setEmployeeName] = useState("Inspector Rajesh Shinde");
+  const [employeePassword, setEmployeePassword] = useState("emp@123");
+
+  return (
+    <>
+      <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.05)", padding: 3, borderRadius: 10, marginBottom: "1.25rem" }}>
+        <button
+          type="button"
+          onClick={() => setMode("admin")}
+          style={{
+            flex: 1, padding: "7px 0", fontSize: 11.5, fontWeight: 600, border: "none",
+            borderRadius: 7, cursor: "pointer", transition: "all 0.2s",
+            background: mode === "admin" ? "linear-gradient(135deg, #1E6BE6, #8B5CF6)" : "transparent",
+            color: mode === "admin" ? "#fff" : "rgba(255,255,255,0.4)"
+          }}
+        >
+          🛡️ City Admin
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("employee")}
+          style={{
+            flex: 1, padding: "7px 0", fontSize: 11.5, fontWeight: 600, border: "none",
+            borderRadius: 7, cursor: "pointer", transition: "all 0.2s",
+            background: mode === "employee" ? "linear-gradient(135deg, #10B981, #3B82F6)" : "transparent",
+            color: mode === "employee" ? "#fff" : "rgba(255,255,255,0.4)"
+          }}
+        >
+          👷 Field Employee
+        </button>
+      </div>
+
+      {mode === "admin" ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#8B5CF6" }} />
+            <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 19, fontWeight: 700, color: "#fff", margin: 0 }}>City Admin Portal</h2>
+          </div>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "0 0 1.25rem", lineHeight: 1.5 }}>
+            Restricted portal for City Command & Municipal Dispatchers
+          </p>
+
+          {error && <ErrorBox msg={error} />}
+
+          <FieldGroup label="Admin ID">
+            <FieldInput icon="ti-id-badge" placeholder="aryan8291" value={adminId} onChange={setAdminId} />
+          </FieldGroup>
+
+          <FieldGroup label="Password">
+            <FieldInput icon="ti-lock" type="password" placeholder="aryan@8291" value={adminPassword} onChange={setAdminPassword} />
+          </FieldGroup>
+
+          <MarqueeButton
+            onClick={() => onAdminLogin(adminId, adminPassword)}
+            disabled={submitting}
+            submitting={submitting}
+            icon="ti-shield-check"
+            label="Sign In to Admin Portal"
+            bg="linear-gradient(135deg, #1E6BE6, #8B5CF6)"
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#10B981" }} />
+            <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 19, fontWeight: 700, color: "#fff", margin: 0 }}>Field Employee Portal</h2>
+          </div>
+          <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", margin: "0 0 1.25rem", lineHeight: 1.5 }}>
+            For assigned response squad officers & field inspectors
+          </p>
+
+          {error && <ErrorBox msg={error} />}
+
+          <FieldGroup label="Employee ID">
+            <FieldInput icon="ti-id" placeholder="emp101" value={employeeId} onChange={setEmployeeId} />
+          </FieldGroup>
+
+          <FieldGroup label="Officer / Staff Name">
+            <FieldInput icon="ti-user" placeholder="Inspector Rajesh Shinde" value={employeeName} onChange={setEmployeeName} />
+          </FieldGroup>
+
+          <FieldGroup label="Password">
+            <FieldInput icon="ti-lock" type="password" placeholder="emp@123" value={employeePassword} onChange={setEmployeePassword} />
+          </FieldGroup>
+
+          <MarqueeButton
+            onClick={() => onEmployeeLogin(employeeId, employeeName, employeePassword)}
+            disabled={submitting}
+            submitting={submitting}
+            icon="ti-user-check"
+            label="Sign In to Staff Portal"
+            bg="linear-gradient(135deg, #059669, #2563EB)"
+          />
+        </>
+      )}
+
+      <div style={{ marginTop: "1.25rem", padding: "10px 12px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8, fontSize: 11, color: "rgba(255,255,255,0.35)", lineHeight: 1.5, textAlign: "center" }}>
+        🔒 Authorized Access · Live broadcasts & GPS resolution proofs enabled for field employees.
+      </div>
+    </>
+  );
+}
+
 export default function AuthPage() {
   const [tab, setTab]             = useState<Tab>("login");
   const [email, setEmail]         = useState("");
@@ -285,10 +432,68 @@ export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const navigate = useNavigate();
-  const { loginWithGoogle, loginWithGithub, user, loading, theme } = useApp();
+  const { loginWithGoogle, loginWithGithub, user, loading, theme, updateProfile, setSelectedCity, loginAsAdmin, loginAsEmployee } = useApp();
 
-  useEffect(() => { if (!loading && user) navigate("/dashboard"); }, [user, loading, navigate]);
+  useEffect(() => {
+    if (!loading && user) {
+      if ((user as any).role === "official" || (user as any).role === "ward") {
+        navigate("/admin");
+      } else if ((user as any).role === "field_employee") {
+        navigate("/employee");
+      } else {
+        navigate("/dashboard");
+      }
+    }
+  }, [user, loading, navigate]);
   useEffect(() => { setError(""); }, [tab, email, password]);
+
+  const handleAdminLogin = async (adminIdInput: string, passInput: string) => {
+    if (!adminIdInput || !passInput) {
+      setError("Please enter your Admin ID and password.");
+      return;
+    }
+
+    if (adminIdInput.trim() !== "aryan8291" || passInput !== "aryan@8291") {
+      setError("Invalid Admin credentials. (Admin ID: aryan8291, Password: aryan@8291)");
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      await loginAsAdmin(adminIdInput.trim());
+      navigate("/admin");
+    } catch {
+      setError("Admin login failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEmployeeLogin = async (empIdInput: string, nameInput: string, passInput: string) => {
+    if (!empIdInput || !passInput) {
+      setError("Please enter your Employee ID and password.");
+      return;
+    }
+
+    if (passInput !== "emp@123") {
+      setError("Invalid Employee password. (Default Password: emp@123)");
+      return;
+    }
+
+    setSubmitting(true);
+    setError("");
+
+    try {
+      await loginAsEmployee(empIdInput.trim(), nameInput.trim() || "Field Officer");
+      navigate("/employee");
+    } catch {
+      setError("Employee sign in failed. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) { setError("Please enter your email and password."); return; }
@@ -306,13 +511,13 @@ export default function AuthPage() {
     }
   };
 
-  const handleSignup = async (firstName: string, lastName: string) => {
-    if (!firstName || !email || !password) { setError("Please fill in your name, email, and password."); return; }
+  const handleSignup = async (name: string) => {
+    if (!name || !email || !password) { setError("Please fill in your name, email, and password."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     setSubmitting(true); setError("");
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(cred.user, { displayName: `${firstName} ${lastName}`.trim() });
+      await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile({ name: name.trim() });
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
       if (code === "auth/email-already-in-use")  setError("An account with this email already exists. Try signing in.");
@@ -351,7 +556,6 @@ export default function AuthPage() {
 
   const isBlueSteel = theme === "blue-steel";
 
-  // Dynamic background that reacts to theme
   const pageBg = isBlueSteel ? "#BDDDFC" : "#0A0F1E";
   const leftBg = isBlueSteel
     ? "linear-gradient(160deg, #88BDF2 0%, #BDDDFC 60%, #a8d4f8 100%)"
@@ -369,10 +573,8 @@ export default function AuthPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: pageBg, display: "flex", fontFamily: "'Inter',sans-serif", position: "relative", overflow: "hidden", transition: "background 0.35s ease" }}>
-      {/* Floating theme toggle */}
       <AuthThemeToggle />
 
-      {/* Left panel */}
       <div style={{ width: "42%", minWidth: 300, position: "relative", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "2rem", background: leftBg, borderRight: `1px solid ${isBlueSteel ? "rgba(56,73,89,0.18)" : "rgba(255,255,255,0.06)"}`, overflow: "hidden", transition: "background 0.35s ease" }}>
         <div style={{ position: "absolute", inset: 0, opacity: 0.18 }}><CityGridSVG /></div>
 
@@ -389,7 +591,7 @@ export default function AuthPage() {
         </div>
 
         <div style={{ position: "relative", zIndex: 2, flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", padding: "2rem 0" }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: isBlueSteel ? "#384959" : "#1E6BE6", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "0.75rem" }}>Citizen-First Governance</div>
+          <div style={{ fontSize: 11, fontWeight: 500, color: isBlueSteel ? "#384959" : "#1E6BE6", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "0.75rem" }}>Citizen & City Governance</div>
           <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 28, fontWeight: 700, color: "#fff", lineHeight: 1.25, letterSpacing: "-0.5px", marginBottom: "1rem" }}>
             Your city.<br /><span style={{ color: isBlueSteel ? "#384959" : "#1E6BE6" }}>Your voice.</span><br />Your data.
           </h1>
@@ -407,23 +609,47 @@ export default function AuthPage() {
           ))}
         </div>
 
-        {/* Pulse rings */}
         <div style={{ position: "absolute", bottom: "2rem", right: "-2rem", width: 140, height: 140, borderRadius: "50%", border: `1px solid ${isBlueSteel ? "rgba(56,73,89,0.25)" : "rgba(30,107,230,0.2)"}`, animation: "authPulse 3s ease-in-out infinite" }} />
         <div style={{ position: "absolute", bottom: "2.5rem", right: "-1.5rem", width: 90, height: 90, borderRadius: "50%", border: `1px solid ${isBlueSteel ? "rgba(56,73,89,0.35)" : "rgba(30,107,230,0.35)"}`, animation: "authPulse 3s ease-in-out infinite 1s" }} />
         <div style={{ position: "absolute", bottom: "4.5rem", right: "0.5rem", width: 10, height: 10, background: isBlueSteel ? "#384959" : "#1E6BE6", borderRadius: "50%" }} />
       </div>
 
-      {/* Right panel */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "2.5rem 2rem", background: pageBg, overflowY: "auto", transition: "background 0.35s ease" }}>
-        <div style={{ width: "100%", maxWidth: 360 }}>
-          {/* Tab switcher */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "2.5rem 2rem", background: pageBg, overflow: "hidden", position: "relative", transition: "background 0.35s ease" }}>
+        {/* 3D Testimonials Marquee — subtle background */}
+        <div style={{ position: "absolute", inset: 0, opacity: 0.2, zIndex: 0 }}>
+          <DemoOne />
+        </div>
+
+        {/* Frosted glass backdrop for form readability */}
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 1,
+          background: "linear-gradient(160deg, rgba(5,8,22,0.65) 0%, rgba(10,15,40,0.75) 100%)",
+          backdropFilter: "blur(2px)",
+          WebkitBackdropFilter: "blur(2px)",
+        }} />
+
+        <div style={{ width: "100%", maxWidth: 360, position: "relative", zIndex: 2,
+          background: "rgba(255,255,255,0.03)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          borderRadius: 18,
+          padding: "2rem 1.75rem",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)"
+        }}>
           <div style={{ display: "flex", background: isBlueSteel ? "rgba(56,73,89,0.10)" : "rgba(255,255,255,0.05)", borderRadius: 10, padding: 4, marginBottom: "2rem", border: isBlueSteel ? "1px solid rgba(56,73,89,0.18)" : "1px solid rgba(255,255,255,0.06)" }}>
-            {(["login","signup"] as Tab[]).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                style={{ flex: 1, padding: "8px 0", fontSize: 13, fontWeight: 500, border: "none", background: tab === t ? (isBlueSteel ? "#384959" : "#1E6BE6") : "none", color: tab === t ? (isBlueSteel ? "#BDDDFC" : "#fff") : "rgba(255,255,255,0.4)", borderRadius: 7, cursor: "pointer", transition: "all 0.2s", fontFamily: "'Inter',sans-serif" }}>
-                {t === "login" ? "Sign in" : "Register"}
-              </button>
-            ))}
+            <button onClick={() => setTab("login")}
+              style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 500, border: "none", background: tab === "login" ? (isBlueSteel ? "#384959" : "#1E6BE6") : "none", color: tab === "login" ? (isBlueSteel ? "#BDDDFC" : "#fff") : "rgba(255,255,255,0.4)", borderRadius: 7, cursor: "pointer", transition: "all 0.2s", fontFamily: "'Inter',sans-serif" }}>
+              Sign in
+            </button>
+            <button onClick={() => setTab("signup")}
+              style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 500, border: "none", background: tab === "signup" ? (isBlueSteel ? "#384959" : "#1E6BE6") : "none", color: tab === "signup" ? (isBlueSteel ? "#BDDDFC" : "#fff") : "rgba(255,255,255,0.4)", borderRadius: 7, cursor: "pointer", transition: "all 0.2s", fontFamily: "'Inter',sans-serif" }}>
+              Register
+            </button>
+            <button onClick={() => setTab("admin")}
+              style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 600, border: "none", background: tab === "admin" ? "linear-gradient(135deg, #1E6BE6, #8B5CF6)" : "none", color: tab === "admin" ? "#fff" : "#94a3b8", borderRadius: 7, cursor: "pointer", transition: "all 0.2s", fontFamily: "'Inter',sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              <span>🛡️</span> Admin
+            </button>
           </div>
 
           {tab === "login" ? (
@@ -431,11 +657,12 @@ export default function AuthPage() {
               onGoogle={handleGoogle} onGithub={handleGithub}
               email={email} setEmail={setEmail} password={password} setPassword={setPassword}
               error={error} submitting={submitting} />
-          ) : (
+          ) : tab === "signup" ? (
             <SignupForm onSwitch={() => setTab("login")} onSignup={handleSignup}
-              onGoogle={handleGoogle} onGithub={handleGithub}
               email={email} setEmail={setEmail} password={password} setPassword={setPassword}
               error={error} submitting={submitting} />
+          ) : (
+            <AdminLoginForm onAdminLogin={handleAdminLogin} onEmployeeLogin={handleEmployeeLogin} submitting={submitting} error={error} />
           )}
         </div>
       </div>

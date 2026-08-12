@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import {
   MapPin, Camera, FileText, Eye, Send, CheckCircle2,
   ChevronRight, ChevronLeft, X, Upload, AlertTriangle,
-  Building2, Trees, Droplets, Car, PlayCircle, Star,
+  Building2, Trees, Droplets, Car, PlayCircle,
   Navigation, ZoomIn, ZoomOut, Search
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
@@ -104,13 +104,9 @@ function LocationPicker({ onSelect }: {
       zoom: 5,
       zoomControl: false,
     });
-    // Satellite tiles
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      attribution: "Tiles © Esri", maxZoom: 19,
-    }).addTo(map);
-    // Dark label overlay
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
-      maxZoom: 19, opacity: 0.85,
+    // OpenStreetMap & CARTO tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', maxZoom: 19,
     }).addTo(map);
 
     map.on("click", async (e: any) => {
@@ -322,6 +318,7 @@ export default function ReportIssue() {
     priority: "medium" as IssuePriority, location: "", lat: 0, lng: 0, image: "",
   });
   const [uploadedImage, setUploadedImage] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageProcessing, setImageProcessing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -334,6 +331,7 @@ export default function ReportIssue() {
   async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSelectedFile(file);
     setImageProcessing(true);
     try {
       const dataUrl = await fileToCompressedDataUrl(file);
@@ -343,19 +341,27 @@ export default function ReportIssue() {
     }
   }
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   async function handleSubmit() {
-    const newIssue: Omit<Issue, "id"> = {
-      title: form.title, description: form.description,
-      category: form.category as IssueCategory, priority: form.priority,
-      status: "new", location: form.location, lat: form.lat, lng: form.lng,
-      votes: 1, comments: 0,
-      reportedBy: user?.uid || "anonymous",
-      reportedAt: new Date().toISOString().split("T")[0],
-      image: uploadedImage || form.image,
-      tags: [form.category as string, form.priority],
-    };
-    await addIssue(newIssue);
-    setSubmitted(true);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const newIssue: Omit<Issue, "id"> = {
+        title: form.title, description: form.description,
+        category: form.category as IssueCategory, priority: form.priority,
+        status: "new", location: form.location, lat: form.lat, lng: form.lng,
+        votes: 1, comments: 0,
+        reportedBy: user?.uid || "anonymous",
+        reportedAt: new Date().toISOString().split("T")[0],
+        image: uploadedImage || form.image,
+        tags: [form.category as string, form.priority],
+      };
+      await addIssue(newIssue, selectedFile);
+      setSubmitted(true);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (submitted) {
@@ -369,11 +375,7 @@ export default function ReportIssue() {
             <CheckCircle2 size={40} className="text-emerald-400" />
           </motion.div>
           <h2 className="text-3xl font-bold text-white mb-3">Issue Reported!</h2>
-          <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4, type: "spring" }}
-            className="flex items-center justify-center gap-2 mb-4 px-4 py-3 rounded-xl bg-yellow-500/10 border border-yellow-500/25">
-            <Star size={18} className="text-yellow-400 fill-yellow-400" />
-            <span className="text-yellow-300 font-bold text-lg">+50 Civic Points Credited!</span>
-          </motion.div>
+
           <p className="text-slate-400 mb-2 text-sm">Your report with GPS coordinates has been submitted.</p>
           <p className="text-sm text-slate-300 mb-2">
             📍 <span className="font-mono text-xs text-slate-400">{form.lat.toFixed(5)}, {form.lng.toFixed(5)}</span>
@@ -538,10 +540,7 @@ export default function ReportIssue() {
                   )}
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-yellow-500/8 border border-yellow-500/20">
-                <Star size={16} className="text-yellow-400 fill-yellow-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-slate-300">Submitting credits <span className="text-yellow-400 font-semibold">+50 civic points</span> instantly to your profile.</p>
-              </div>
+
             </div>
           )}
         </motion.div>
@@ -559,9 +558,9 @@ export default function ReportIssue() {
               Continue <ChevronRight size={16} />
             </button>
           ) : (
-            <button onClick={handleSubmit}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-all shadow-[0_0_16px_rgba(16,185,129,0.3)]">
-              <Send size={14} /> Submit Report
+            <button onClick={handleSubmit} disabled={isSubmitting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-all shadow-[0_0_16px_rgba(16,185,129,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">
+              <Send size={14} /> {isSubmitting ? "Submitting..." : "Submit Report"}
             </button>
           )}
         </div>

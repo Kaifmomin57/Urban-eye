@@ -10,6 +10,8 @@ import MapView from "./pages/MapView";
 import Kanban from "./pages/Kanban";
 import Rewards from "./pages/Rewards";
 import Profile from "./pages/Profile";
+import AdminPortal from "./pages/AdminPortal";
+import EmployeePortal from "./pages/EmployeePortal";
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -39,6 +41,8 @@ function AppRoutes() {
         <Route path="/report" element={<PageWrapper><ReportIssue /></PageWrapper>} />
         <Route path="/map" element={<PageWrapper><MapView /></PageWrapper>} />
         <Route path="/kanban" element={<PageWrapper><Kanban /></PageWrapper>} />
+        <Route path="/admin" element={<PageWrapper><AdminPortal /></PageWrapper>} />
+        <Route path="/employee" element={<PageWrapper><EmployeePortal /></PageWrapper>} />
         <Route path="/rewards" element={<PageWrapper><Rewards /></PageWrapper>} />
         <Route path="/profile" element={<PageWrapper><Profile /></PageWrapper>} />
       </Routes>

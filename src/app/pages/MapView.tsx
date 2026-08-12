@@ -18,9 +18,9 @@ const HOTSPOT_RADIUS = 2000;
 
 const TILE_LAYERS = {
   satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: "Tiles &copy; Esri",
-    label: "Satellite",
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    label: "Street Map",
   },
   dark: {
     url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
@@ -28,12 +28,39 @@ const TILE_LAYERS = {
     label: "Dark",
   },
   hybrid: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: "Tiles &copy; Esri",
-    label: "Hybrid",
-    labels: "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    label: "Voyager",
   },
 };
+
+const CITY_COORDINATES: Record<string, [number, number]> = {
+  Mumbai: [19.0760, 72.8777],
+  Delhi: [28.6139, 77.2090],
+  Bengaluru: [12.9716, 77.5946],
+  Pune: [18.5204, 73.8567],
+  Hyderabad: [17.3850, 78.4867],
+  Chennai: [13.0827, 80.2707],
+  Kolkata: [22.5726, 88.3639],
+  Ahmedabad: [23.0225, 72.5714],
+};
+
+function getIssueCoords(issue: any): [number, number] {
+  if (issue.lat && issue.lng && !isNaN(issue.lat) && !isNaN(issue.lng)) {
+    return [issue.lat, issue.lng];
+  }
+  const city = issue.city || "Mumbai";
+  const base = CITY_COORDINATES[city] || CITY_COORDINATES["Mumbai"];
+  let hash = 0;
+  const str = (issue.id || "") + (issue.title || "");
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const offsetLat = ((Math.abs(hash) % 120) / 1500) - 0.04;
+  const offsetLng = (((Math.abs(hash >> 3)) % 120) / 1500) - 0.04;
+  return [base[0] + offsetLat, base[1] + offsetLng];
+}
 
 function categoryColor(cat: string) {
   return CATEGORY_COLOR[cat as IssueCategory] ?? "#6366f1";
@@ -164,7 +191,7 @@ export default function MapView() {
     markersRef.current = [];
 
     filtered.forEach(issue => {
-      if (!issue.lat || !issue.lng) return;
+      const [lat, lng] = getIssueCoords(issue);
       const color = categoryColor(issue.category);
       const isNew = issue.status === "new";
       const isCritical = issue.priority === "critical";
@@ -191,15 +218,18 @@ export default function MapView() {
         iconAnchor: [16, 16],
       });
 
-      const marker = L.marker([issue.lat, issue.lng], { icon })
+      const marker = L.marker([lat, lng], { icon })
         .addTo(map)
-        .on("click", () => setSelected(id => id === issue.id ? null : issue.id));
+        .on("click", () => {
+          setSelected(id => id === issue.id ? null : issue.id);
+          map.flyTo([lat, lng], 15, { duration: 1.2 });
+        });
 
       markersRef.current.push(marker);
     });
   }, [filtered, mapReady]);
 
-  // ── Render hotspot circles ────────────────────────────────────────────────
+  // ── Render heatmap & hotspot circles ──────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
@@ -209,35 +239,35 @@ export default function MapView() {
 
     if (!showHotspots) return;
 
-    // Group issues by proximity
-    const groups: { lat: number; lng: number; count: number; category: string }[] = [];
+    const groups: { lat: number; lng: number; count: number; category: string; maxPriority: string }[] = [];
     filtered.forEach(issue => {
-      if (!issue.lat || !issue.lng) return;
+      const [lat, lng] = getIssueCoords(issue);
       const existing = groups.find(g => {
-        const dlat = g.lat - issue.lat;
-        const dlng = g.lng - issue.lng;
-        return Math.sqrt(dlat * dlat + dlng * dlng) < 0.05;
+        const dlat = g.lat - lat;
+        const dlng = g.lng - lng;
+        return Math.sqrt(dlat * dlat + dlng * dlng) < 0.04;
       });
       if (existing) {
         existing.count++;
+        if (issue.priority === "critical") existing.maxPriority = "critical";
       } else {
-        groups.push({ lat: issue.lat, lng: issue.lng, count: 1, category: issue.category });
+        groups.push({ lat, lng, count: 1, category: issue.category, maxPriority: issue.priority || "medium" });
       }
     });
 
-    groups.filter(g => g.count >= 2).forEach(g => {
-      const intensity = Math.min(g.count / 5, 1);
-      const color = g.count >= 4 ? "#ef4444" : g.count >= 3 ? "#f97316" : "#eab308";
+    groups.forEach(g => {
+      const intensity = Math.min(g.count / 4, 1);
+      const color = g.maxPriority === "critical" || g.count >= 3 ? "#ef4444" : g.count >= 2 ? "#f97316" : "#3b82f6";
       const circle = L.circle([g.lat, g.lng], {
-        radius: HOTSPOT_RADIUS * (0.5 + intensity),
+        radius: 1000 + (g.count * 500),
         color: color,
         fillColor: color,
-        fillOpacity: 0.08 + intensity * 0.1,
-        weight: 1.5,
-        dashArray: "6 4",
+        fillOpacity: 0.18 + (intensity * 0.25),
+        weight: 2,
+        dashArray: g.count >= 2 ? "6 4" : undefined,
       }).addTo(map);
 
-      circle.bindTooltip(`🔥 Hotspot: ${g.count} issues nearby`, {
+      circle.bindTooltip(`🔥 Heatmap Zone: ${g.count} issue(s) reported nearby`, {
         className: "leaflet-dark-tooltip",
         sticky: true,
       });
@@ -249,9 +279,8 @@ export default function MapView() {
   // ── Fly to selected issue ─────────────────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedIssue) return;
-    if (selectedIssue.lat && selectedIssue.lng) {
-      mapRef.current.flyTo([selectedIssue.lat, selectedIssue.lng], 15, { duration: 1.2 });
-    }
+    const coords = getIssueCoords(selectedIssue);
+    mapRef.current.flyTo(coords, 15, { duration: 1.2 });
   }, [selected, mapReady]);
 
   // ── Pin mode sync to window ───────────────────────────────────────────────
@@ -406,12 +435,18 @@ export default function MapView() {
               className="pl-9 pr-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/50 w-56" />
           </div>
 
-          {/* Status filter */}
-          <div className="flex gap-1 p-1 rounded-xl bg-white/5 border border-white/8">
-            {(["all", "new", "in_progress", "resolved"] as const).map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all capitalize ${statusFilter === s ? "bg-blue-500/20 text-blue-300 border border-blue-500/30" : "text-slate-400 hover:text-white"}`}>
-                {s.replace("_", " ")}
+          {/* City Quick Jump FlyTo Buttons */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/8">
+            {Object.keys(CITY_COORDINATES).slice(0, 5).map(c => (
+              <button key={c}
+                onClick={() => {
+                  if (mapRef.current) {
+                    mapRef.current.flyTo(CITY_COORDINATES[c], 13, { duration: 1.5 });
+                    showToast(`✈️ Flying to ${c}`);
+                  }
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+                {c}
               </button>
             ))}
           </div>
@@ -622,7 +657,13 @@ export default function MapView() {
                     </button>
                   </div>
                   <button
-                    onClick={() => { if (selectedIssue.lat && selectedIssue.lng && mapRef.current) { mapRef.current.flyTo([selectedIssue.lat, selectedIssue.lng], 17, { duration: 1 }); } }}
+                    onClick={() => {
+                      if (mapRef.current && selectedIssue) {
+                        const coords = getIssueCoords(selectedIssue);
+                        mapRef.current.flyTo(coords, 17, { duration: 1.5 });
+                        showToast(`✈️ Flying to ${selectedIssue.title}`);
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-medium hover:bg-blue-600/30 transition-all flex items-center justify-center gap-1.5">
                     <Navigation size={11} /> Fly to location
                   </button>

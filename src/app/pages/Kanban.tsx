@@ -12,24 +12,33 @@ import { Issue, CATEGORY_COLOR, PRIORITY_COLOR } from "../data/mockData";
 const COLUMNS = [
   { id: "new", label: "New", color: "#64748b", bg: "rgba(100,116,139,0.08)", count_color: "#94a3b8" },
   { id: "in_progress", label: "In Progress", color: "#3b82f6", bg: "rgba(59,130,246,0.08)", count_color: "#60a5fa" },
+  { id: "pending_approval", label: "Pending Citizen Approval", color: "#a855f7", bg: "rgba(168,85,247,0.08)", count_color: "#c084fc" },
   { id: "resolved", label: "Resolved", color: "#10b981", bg: "rgba(16,185,129,0.08)", count_color: "#34d399" },
 ] as const;
 
 const ITEM_TYPE = "ISSUE_CARD";
 
 function IssueCard({ issue, index }: { issue: Issue; index: number }) {
-  const { upvoteIssue, user } = useApp();
+  const { upvoteIssue, approveResolution, user } = useApp();
   const [voted, setVoted] = useState(false);
 
-  const isOwner = !!user && issue.reportedBy === user.uid;
+  // Check if current user is the author of this report or an official/ward administrator
+  const isOwner = !!user && (
+    user.role === "official" ||
+    user.role === "ward" ||
+    user.role === "field_employee" ||
+    issue.reportedBy === user.uid ||
+    issue.reportedBy === user.name ||
+    (issue as any).reporterId === user.uid ||
+    (issue as any).reporterName === user.name
+  );
 
   const [{ isDragging }, drag] = useDrag(() => ({
     type: ITEM_TYPE,
     item: { id: issue.id },
-    // Only allow dragging if the current user is the reporter
     canDrag: isOwner,
     collect: (monitor) => ({ isDragging: monitor.isDragging() }),
-  }), [isOwner]);
+  }), [isOwner, issue.id]);
 
   function handleVote(e: React.MouseEvent) {
     e.stopPropagation();
@@ -48,14 +57,14 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
       className={`group p-4 rounded-xl border bg-[rgba(11,16,32,0.9)] hover:bg-[rgba(15,20,40,0.95)] transition-all ${
         isOwner
           ? "cursor-grab active:cursor-grabbing"
-          : "cursor-default opacity-80"
+          : "cursor-default opacity-85"
       } ${
         isDragging
           ? "shadow-[0_8px_32px_rgba(59,130,246,0.2)] border-blue-500/30 rotate-1"
           : "border-white/8 hover:border-white/15"
       }`}
       style={{ boxShadow: isDragging ? "0 12px 40px rgba(59,130,246,0.25)" : undefined }}
-      title={!isOwner ? "Only the reporter can move this issue" : undefined}
+      title={!isOwner ? "Only the creator of this report or municipal officers can move this issue" : undefined}
     >
       {/* Category & Priority */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -79,16 +88,52 @@ function IssueCard({ issue, index }: { issue: Issue; index: number }) {
             <AlertTriangle size={9} /> High
           </span>
         )}
-        {/* Lock icon for issues the current user doesn't own */}
         {!isOwner && (
           <span className="ml-auto flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] bg-white/5 text-slate-500 border border-white/8">
-            <Lock size={8} /> Not yours
+            <Lock size={8} /> Read Only
           </span>
         )}
       </div>
 
       {/* Title */}
       <p className="text-sm font-medium text-white leading-snug mb-2 group-hover:text-blue-100 transition-colors line-clamp-2">{issue.title}</p>
+
+      {/* Citizen Approval Card Action if Pending Confirmation */}
+      {issue.status === "pending_approval" && (
+        <div className="mt-3 pt-3 border-t border-purple-500/20 bg-purple-500/5 -mx-4 -mb-4 p-3 rounded-b-xl">
+          <div className="text-[11px] font-semibold text-purple-300 mb-1 flex items-center gap-1">
+            <span>📸</span> Resolution Proof Submitted
+          </div>
+          {issue.resolutionProof && (
+            <div className="flex items-center gap-2 mb-2">
+              <img src={issue.resolutionProof.imageUrl} alt="Proof" className="w-12 h-10 rounded object-cover border border-purple-500/30" />
+              <div className="text-[10px] text-slate-400">
+                Uploaded by {issue.resolutionProof.resolvedBy}
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                approveResolution(issue.id, true);
+              }}
+              className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-all"
+            >
+              ✓ Approve Solved
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                approveResolution(issue.id, false);
+              }}
+              className="py-1 px-2 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 text-[11px] font-semibold transition-all"
+            >
+              ✕ Reject
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Location */}
       <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-3">
@@ -205,7 +250,16 @@ export default function Kanban() {
     return true;
   });
 
-  const byStatus = (status: Issue["status"]) => filtered.filter(i => i.status === status);
+  const normalizeStatus = (status: string): Issue["status"] => {
+    const s = (status || "").toLowerCase().replace(/[\s-]/g, "_");
+    if (s === "reported" || s === "new") return "new";
+    if (s === "in_progress" || s === "inprogress") return "in_progress";
+    if (s === "resolved") return "resolved";
+    return "new";
+  };
+
+  const byStatus = (columnStatus: Issue["status"]) =>
+    filtered.filter(i => normalizeStatus(i.status) === columnStatus);
 
   return (
     <DndProvider backend={HTML5Backend}>

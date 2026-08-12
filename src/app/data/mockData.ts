@@ -1,6 +1,6 @@
 export type IssueCategory = "Infrastructure" | "Safety" | "Environment" | "Utilities" | "Traffic" | "Public Spaces";
 export type IssuePriority = "low" | "medium" | "high" | "critical";
-export type IssueStatus = "new" | "in_progress" | "resolved";
+export type IssueStatus = "new" | "in_progress" | "pending_approval" | "resolved";
 
 export interface Issue {
   id: string;
@@ -10,6 +10,7 @@ export interface Issue {
   priority: IssuePriority;
   status: IssueStatus;
   location: string;
+  city?: string;
   lat: number;
   lng: number;
   votes: number;
@@ -18,6 +19,34 @@ export interface Issue {
   reportedAt: string;
   image?: string;
   tags: string[];
+  aiPriorityScore?: number;
+  aiPriorityLevel?: "critical" | "high" | "medium" | "low";
+  slaHours?: number;
+  slaDeadline?: string;
+  escalated?: boolean;
+  assignedTeam?: {
+    teamName: string;
+    officerNames: string[];
+    assignedAt: string;
+  };
+  upvotedBy?: string[];
+  siteArrivalProof?: {
+    imageUrl: string;
+    lat: number;
+    lng: number;
+    locationName?: string;
+    arrivedAt: string;
+    arrivedBy: string;
+  };
+  resolutionProof?: {
+    imageUrl: string;
+    lat: number;
+    lng: number;
+    locationName?: string;
+    resolvedAt: string;
+    resolvedBy: string;
+    approvedByCitizen?: boolean;
+  };
 }
 
 export interface User {
@@ -61,40 +90,21 @@ export const CURRENT_USER: User = {
   ],
 };
 
-export const ISSUES: Issue[] = [
-  {
-    id: "i1", title: "Large pothole on Maple Ave & 5th St", description: "A massive pothole has formed at the intersection, causing tire damage to numerous vehicles. The hole is approximately 2 feet wide and 8 inches deep.", category: "Infrastructure", priority: "critical", status: "in_progress", location: "Maple Ave & 5th St", lat: 40.7128, lng: -74.006, votes: 87, comments: 23, reportedBy: "Alex Rivera", reportedAt: "2024-01-15", tags: ["pothole", "road", "urgent"],
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i2", title: "Broken streetlight on Harbor Boulevard", description: "Streetlight has been out for 3 weeks. The area is very dark at night, creating safety concerns for pedestrians.", category: "Safety", priority: "high", status: "new", location: "Harbor Blvd, near Park", lat: 40.715, lng: -74.01, votes: 54, comments: 12, reportedBy: "Maria Chen", reportedAt: "2024-01-18", tags: ["streetlight", "safety", "night"],
-    image: "https://images.unsplash.com/photo-1564419320461-6870880221ad?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i3", title: "Illegal dumping in Riverside Park", description: "Someone has been dumping construction waste in the park near the river trail. Multiple large piles of debris visible.", category: "Environment", priority: "high", status: "new", location: "Riverside Park, East Trail", lat: 40.71, lng: -73.998, votes: 41, comments: 9, reportedBy: "David Park", reportedAt: "2024-01-20", tags: ["dumping", "environment", "park"],
-    image: "https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i4", title: "Water main leak flooding the sidewalk", description: "A water main has been leaking for 2 days, flooding the sidewalk and creating an icy hazard overnight.", category: "Utilities", priority: "critical", status: "in_progress", location: "Oak Street, Block 400", lat: 40.708, lng: -74.002, votes: 92, comments: 31, reportedBy: "Sarah Johnson", reportedAt: "2024-01-21", tags: ["water", "flooding", "utilities"],
-    image: "https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i5", title: "Traffic signal malfunction at Main & Broadway", description: "Traffic signal has been stuck on red for southbound traffic. Causing major backups during rush hour.", category: "Traffic", priority: "high", status: "in_progress", location: "Main St & Broadway", lat: 40.717, lng: -74.012, votes: 73, comments: 17, reportedBy: "James Wilson", reportedAt: "2024-01-19", tags: ["traffic", "signal", "rush hour"],
-    image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i6", title: "Vandalized playground equipment at Central Park", description: "The swing set has been vandalized — chains cut and seats missing. Children cannot use the equipment.", category: "Public Spaces", priority: "medium", status: "resolved", location: "Central Park, Section B", lat: 40.7052, lng: -73.994, votes: 38, comments: 14, reportedBy: "Lisa Thompson", reportedAt: "2024-01-10", tags: ["playground", "vandalism", "children"],
-    image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i7", title: "Overgrown tree branches blocking street signs", description: "Tree branches on Elm Street have grown over and completely obscure three road signs. Major navigation hazard.", category: "Infrastructure", priority: "medium", status: "resolved", location: "Elm Street, near Community Center", lat: 40.713, lng: -74.005, votes: 29, comments: 7, reportedBy: "Robert Kim", reportedAt: "2024-01-08", tags: ["trees", "signage", "visibility"],
-    image: "https://images.unsplash.com/photo-1448375240586-882707db888b?w=400&h=200&fit=crop&auto=format"
-  },
-  {
-    id: "i8", title: "Graffiti on historic library wall", description: "Someone has spray-painted graffiti on the east wall of the historic public library. Requires professional removal.", category: "Public Spaces", priority: "low", status: "new", location: "City Library, East Wall", lat: 40.709, lng: -73.999, votes: 21, comments: 5, reportedBy: "Emma Davis", reportedAt: "2024-01-22", tags: ["graffiti", "vandalism", "library"],
-    image: "https://images.unsplash.com/photo-1499781350541-7783f6c6a0c8?w=400&h=200&fit=crop&auto=format"
-  },
+export const INITIAL_CITY_ROSTERS = [
+  // Mumbai Officers
+  { id: "off-m1", name: "Inspector Rajesh Shinde", department: "Public Works", role: "Senior Road Engineer", phone: "+91 98201 12345", city: "Mumbai", status: "on_shift" as const, shiftStart: "08:00", shiftEnd: "16:00", activeAssignments: 1, avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop" },
+  { id: "off-m2", name: "Officer Priya Kulkarni", department: "Water & Power", role: "Utilities Specialist", phone: "+91 98202 23456", city: "Mumbai", status: "on_shift" as const, shiftStart: "08:00", shiftEnd: "16:00", activeAssignments: 2, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop" },
+  { id: "off-m3", name: "Captain Vikram Patil", department: "Traffic & Safety", role: "Safety Supervisor", phone: "+91 98203 34567", city: "Mumbai", status: "on_shift" as const, shiftStart: "09:00", shiftEnd: "17:00", activeAssignments: 0, avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop" },
+  { id: "off-m4", name: "Officer Sunita Deshmukh", department: "Sanitation & Bio-Hazard", role: "Environmental Officer", phone: "+91 98204 45678", city: "Mumbai", status: "on_leave" as const, shiftStart: "08:00", shiftEnd: "16:00", activeAssignments: 0, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop" },
+  { id: "off-m5", name: "Engineer Amit Shah", department: "Parks & Amenities", role: "Civic Maintenance", phone: "+91 98205 56789", city: "Mumbai", status: "off_duty" as const, shiftStart: "16:00", shiftEnd: "24:00", activeAssignments: 0, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop" },
+
+  // Pune Officers
+  { id: "off-p1", name: "Officer Anand Joshi", department: "Public Works", role: "Ward Supervisor", phone: "+91 98901 11223", city: "Pune", status: "on_shift" as const, shiftStart: "08:00", shiftEnd: "16:00", activeAssignments: 0, avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop" },
+  { id: "off-p2", name: "Inspector Sneha More", department: "Water & Power", role: "Hydraulic Engineer", phone: "+91 98902 22334", city: "Pune", status: "on_shift" as const, shiftStart: "08:00", shiftEnd: "16:00", activeAssignments: 1, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop" },
+  { id: "off-p3", name: "Officer Rahul Pawar", department: "Traffic & Safety", role: "Safety Lead", phone: "+91 98903 33445", city: "Pune", status: "off_duty" as const, shiftStart: "16:00", shiftEnd: "24:00", activeAssignments: 0, avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop" },
 ];
+
+export const ISSUES: Issue[] = [];
 
 export const WEEKLY_DATA = [
   { day: "Mon", reported: 12, resolved: 8, active: 45 },

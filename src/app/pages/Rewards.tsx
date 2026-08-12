@@ -223,7 +223,7 @@ function RedeemModal({
 
 
 export default function Rewards() {
-  const { user, redeemReward } = useApp();
+  const { user, redeemReward, issues } = useApp();
   const confettiRef = useRef(false);
   const heroRef = useRef(null);
   const heroInView = useInView(heroRef, { once: true });
@@ -246,7 +246,33 @@ export default function Rewards() {
 
   if (!user) return null;
 
-  const badges = DEFAULT_BADGES;
+  // Count issues actually created by this user from live issue list
+  const myIssues = issues.filter(i =>
+    i.reportedBy === user.uid ||
+    i.reportedBy === user.name ||
+    (i as any).reporterId === user.uid ||
+    (i as any).reporterName === user.name
+  );
+  const reportedCount = Math.max(myIssues.length, user.reportsFiled ?? 0);
+  const resolvedCount = Math.max(
+    myIssues.filter(i => i.status === "resolved").length,
+    user.reportsResolved ?? 0
+  );
+  const maxUpvote = myIssues.reduce((max, i) => Math.max(max, i.votes ?? 0), 0);
+
+  // Compute badge progress from real user data
+  const badges = DEFAULT_BADGES.map(b => {
+    let progress = b.progress;
+    let unlocked = b.unlocked;
+    if (b.id === "b1") { progress = Math.min(reportedCount, 1); unlocked = reportedCount >= 1; }
+    if (b.id === "b2") { progress = Math.min(reportedCount, 10); unlocked = reportedCount >= 10; }
+    if (b.id === "b3") { progress = Math.min(resolvedCount, 25); unlocked = resolvedCount >= 25; }
+    if (b.id === "b4") { progress = Math.min(user.points, 5000); unlocked = user.points >= 5000; }
+    if (b.id === "b5") { progress = Math.min(maxUpvote, 100); unlocked = maxUpvote >= 100; }
+    if (b.id === "b6") { progress = Math.min(reportedCount, 100); unlocked = reportedCount >= 100; }
+    return { ...b, progress, unlocked };
+  });
+
   const currentTier = RANK_TIERS.find(t => user.points >= t.minPoints && user.points < t.maxPoints) ?? RANK_TIERS[0];
   const nextTier = RANK_TIERS[RANK_TIERS.indexOf(currentTier) + 1];
   const tierProgress = ((user.points - currentTier.minPoints) / (currentTier.maxPoints - currentTier.minPoints)) * 100;
@@ -343,10 +369,10 @@ export default function Rewards() {
             {/* Quick stats */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Issues Reported", value: user.reportsFiled ?? 0, icon: "📍", color: "#3b82f6" },
-                { label: "Issues Resolved", value: user.reportsResolved ?? 0, icon: "✅", color: "#10b981" },
+                { label: "Issues Reported", value: reportedCount, icon: "📍", color: "#3b82f6" },
+                { label: "Issues Resolved", value: resolvedCount, icon: "✅", color: "#10b981" },
                 { label: "Badges Earned", value: badges.filter(b => b.unlocked).length, icon: "🏅", color: "#f59e0b" },
-                { label: "Civic Level", value: `Lv.${user.level}`, icon: "⭐", color: "#8b5cf6" },
+                { label: "Civic Level", value: `Lv.${user.level ?? 1}`, icon: "⭐", color: "#8b5cf6" },
               ].map((s) => (
                 <div key={s.label} className="p-3 rounded-xl bg-white/5 border border-white/8 text-center">
                   <div className="text-lg mb-0.5">{s.icon}</div>
