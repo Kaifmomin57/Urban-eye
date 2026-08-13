@@ -14,3 +14,11 @@ services:
         sync: false   # Set this manually in Render dashboard
       - key: GEMINI_API_KEY
         sync: false   # Set this manually in Render dashboard
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false

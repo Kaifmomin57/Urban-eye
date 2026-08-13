@@ -20,6 +20,13 @@ router = APIRouter(prefix="/issues", tags=["Issues"])
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Configure Cloudinary with credentials from environment
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", ""),
+    api_key=os.getenv("CLOUDINARY_API_KEY", ""),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET", "")
+)
+
 @router.get("")
 async def get_all_issues(city: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     query = select(DBIssue).order_by(DBIssue.created_at.desc())
@@ -374,26 +381,6 @@ async def get_ai_report(issue_id: str, db: AsyncSession = Depends(get_db)):
     it generates it on the fly, saves it to the database, and returns it.
     """
     # 1. Fetch issue from DB
-# ── Upload image for proof (arrival or resolution) ─────────────────────────────
-@router.post("/upload-proof")
-async def upload_proof_image(
-    image: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
-):
-    """Upload an image file and return its URL — used by Employee Portal proof forms."""
-    image_bytes = await image.read()
-    ext = image.filename.split(".")[-1] if image.filename and "." in image.filename else "jpg"
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(image_bytes)
-    image_url = f"/uploads/{filename}"
-    return {"success": True, "imageUrl": image_url, "url": image_url}
-
-
-# ── Site Arrival Proof ─────────────────────────────────────────────────────────
-@router.patch("/{issue_id}/arrival-proof")
-async def submit_arrival_proof(issue_id: str, payload: ProofSubmitSchema, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
     issue = result.scalars().first()
     if not issue:
@@ -495,7 +482,7 @@ async def submit_arrival_proof(issue_id: str, payload: ProofSubmitSchema, db: As
     issue.ai_annotated_image_url = ai_annotated_image_url or issue.ai_annotated_image_url
     if analysis.get("yolo_detections"):
         issue.yolo_detections = analysis.get("yolo_detections")
-    
+
     await db.commit()
 
     return {
@@ -520,6 +507,33 @@ async def submit_arrival_proof(issue_id: str, payload: ProofSubmitSchema, db: As
         "image_analyzed": image_bytes is not None,
         "yolo_ran": len(analysis.get("yolo_detections", [])) > 0,
     }
+
+
+# ── Upload image for proof (arrival or resolution) ─────────────────────────────
+@router.post("/upload-proof")
+async def upload_proof_image(
+    image: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload an image file and return its URL — used by Employee Portal proof forms."""
+    image_bytes = await image.read()
+    ext = image.filename.split(".")[-1] if image.filename and "." in image.filename else "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(image_bytes)
+    image_url = f"/uploads/{filename}"
+    return {"success": True, "imageUrl": image_url, "url": image_url}
+
+
+# ── Site Arrival Proof ─────────────────────────────────────────────────────────
+@router.patch("/{issue_id}/arrival-proof")
+async def submit_arrival_proof(issue_id: str, payload: ProofSubmitSchema, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DBIssue).where(DBIssue.id == issue_id))
+    issue = result.scalars().first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
     arrived_at = datetime.utcnow().isoformat()
     proof_data = {
         "imageUrl": payload.image_url,

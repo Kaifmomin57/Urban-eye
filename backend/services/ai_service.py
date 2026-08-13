@@ -4,14 +4,17 @@ import warnings
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+# Initialize the new google-genai client
+_gemini_client = None
 if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-    genai.configure(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Global dictionary to cache loaded models
 YOLO_MODELS = {}
@@ -226,67 +229,105 @@ async def analyze_issue_with_ai(image_bytes: bytes | None, description: str, cat
         else:
             print("[AI Service] YOLO detected nothing of interest or failed.")
 
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE" or _gemini_client is None:
         print("[AI Service] Gemini API key not configured. Using rule-based analyzer fallback.")
         fallback["yolo_detections"] = yolo_detections
         if yolo_summary_str:
             fallback["summary"] = f"[YOLO detected: {yolo_summary_str}] " + fallback["summary"]
         return fallback
 
-    try:
-        # Using the standard gemini-3.5-flash model
-        model = genai.GenerativeModel('gemini-3.5-flash')
+    yolo_info_prompt = ""
+    if yolo_summary_str:
+        yolo_info_prompt = f"A local YOLO Object Detection model ran on this image and detected: {yolo_summary_str}."
 
-        yolo_info_prompt = ""
-        if yolo_summary_str:
-            yolo_info_prompt = f"A local YOLO Object Detection model ran on this image and detected: {yolo_summary_str}."
+    prompt = f"""
+    You are an expert Smart City AI Inspector for Urban Eye. Analyze the following civic complaint details and optional image.
 
-        prompt = f"""
-        You are an expert Smart City AI Inspector for Urban Eye. Analyze the following civic complaint details and optional image.
+    Issue Description: "{description}"
+    Reported Category: "{category}"
+    Location: "{location}"
 
-        Issue Description: "{description}"
-        Reported Category: "{category}"
-        Location: "{location}"
-        
-        {yolo_info_prompt}
+    {yolo_info_prompt}
 
-        Provide a JSON response ONLY with the following exact keys:
-        - "ai_score": integer from 1 to 100 representing hazard severity and urgency
-        - "priority": string, one of "critical", "high", "medium", "low"
-        - "suggested_category": string, verified category ("Infrastructure", "Utilities", "Safety", "Environment", "Public Spaces")
-        - "summary": string, 2-sentence formal technical summary of the issue (incorporate what the citizen reported and what YOLO computer vision detected)
-        - "risk_assessment": string, assessment of risk to citizens, traffic, or infrastructure
-        - "citizen_impact_score": integer from 1 to 100
-        - "recommended_action": string, recommended municipal squad action
-        - "suggested_sla_hours": integer (e.g. 4 for critical, 12 for high, 24 for medium, 48 for low)
-        - "full_report": string, a detailed 5-7 sentence human-readable report explaining: what was detected by computer vision (if any), what the citizen described, the exact nature of the problem, potential dangers to the public, the recommended course of action, and the expected resolution timeline. Write this as a professional municipal inspection report.
-        """
+    Provide a JSON response ONLY with the following exact keys:
+    - "ai_score": integer from 1 to 100 representing hazard severity and urgency
+    - "priority": string, one of "critical", "high", "medium", "low"
+    - "suggested_category": string, verified category ("Infrastructure", "Utilities", "Safety", "Environment", "Public Spaces")
+    - "summary": string, 2-sentence formal technical summary of the issue (incorporate what the citizen reported and what YOLO computer vision detected)
+    - "risk_assessment": string, assessment of risk to citizens, traffic, or infrastructure
+    - "citizen_impact_score": integer from 1 to 100
+    - "recommended_action": string, recommended municipal squad action
+    - "suggested_sla_hours": integer (e.g. 4 for critical, 12 for high, 24 for medium, 48 for low)
+    - "full_report": string, a detailed 5-7 sentence human-readable report explaining: what was detected by computer vision (if any), what the citizen described, the exact nature of the problem, potential dangers to the public, the recommended course of action, and the expected resolution timeline. Write this as a professional municipal inspection report.
+    """
 
-        content = [prompt]
+    # (image attachment handled per-attempt below with new SDK parts)
 
-        if image_bytes:
+    # Confirmed working models for this API key (tested 2026-08)
+    GEMINI_MODELS = [
+        "gemini-flash-latest",    # Best: always points to latest flash
+        "gemini-3.5-flash",       # Fallback 1: fast & capable
+        "gemini-3.1-flash-lite",  # Fallback 2: lightweight
+        "gemini-3-flash-preview", # Fallback 3: preview
+    ]
+
+    # Build parts for the new SDK
+    parts = [prompt]
+    if image_bytes:
+        try:
             image = Image.open(BytesIO(image_bytes))
-            content.append(image)
+            out_io = BytesIO()
+            image.save(out_io, format="JPEG")
+            parts.append(types.Part.from_bytes(data=out_io.getvalue(), mime_type="image/jpeg"))
+        except Exception as img_err:
+            print(f"[AI Service] Could not attach image for Gemini: {img_err}")
 
-        response = model.generate_content(content)
-        responseText = response.text.strip()
+    response_text = None
+    for model_name in GEMINI_MODELS:
+        try:
+            print(f"[AI Service] Trying Gemini model: {model_name}...")
+            response = _gemini_client.models.generate_content(
+                model=model_name,
+                contents=parts,
+            )
+            response_text = response.text.strip()
+            print(f"[AI Service] Success with model: {model_name}")
+            break
+        except Exception as model_err:
+            err_str = str(model_err)
+            print(f"[AI Service] Model {model_name} error: {err_str[:200]}")
+            if any(x in err_str for x in ["404", "not found", "not supported", "deprecated", "no longer available"]):
+                print(f"[AI Service] → Model not available, trying next...")
+                continue
+            # Non-retryable error (quota, auth, etc.)
+            print(f"[AI Service Error] → Non-retryable error, stopping. Full: {err_str}")
+            break
 
-        # Clean JSON markdown quotes if returned
-        if responseText.startswith("```json"):
-            responseText = responseText[7:]
-        if responseText.endswith("```"):
-            responseText = responseText[:-3]
+    if response_text is None:
+        print("[AI Service] All Gemini models exhausted or failed. Falling back.")
+        fallback["yolo_detections"] = yolo_detections
+        fallback["annotated_image_bytes"] = annotated_image_bytes
+        if yolo_summary_str:
+            fallback["summary"] = f"[YOLO detected: {yolo_summary_str}] " + fallback["summary"]
+        return fallback
 
-        parsed = json.loads(responseText.strip())
-        
-        # Attach YOLO detections to the response so the frontend/database can save it
+    try:
+        # Clean JSON markdown fences if returned
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+
+        parsed = json.loads(response_text.strip())
         parsed["yolo_detections"] = yolo_detections
         parsed["annotated_image_bytes"] = annotated_image_bytes
         return parsed
 
-    except Exception as e:
-        print(f"[AI Service Error] Gemini Vision analysis failed: {e}. Falling back.")
+    except Exception as parse_err:
+        print(f"[AI Service Error] Failed to parse Gemini JSON response: {parse_err}")
         fallback["yolo_detections"] = yolo_detections
-        fallback["annotated_image_bytes"] = None
+        fallback["annotated_image_bytes"] = annotated_image_bytes
         return fallback
 
