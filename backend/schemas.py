@@ -43,3 +43,14 @@ class IssueFlagSchema(BaseModel):
 class UserProfileUpdateSchema(BaseModel):
     name: Optional[str] = None
     photo_url: Optional[str] = None
+
+class ProofSubmitSchema(BaseModel):
+    image_url: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    location_name: Optional[str] = None
+    submitted_by: Optional[str] = "Field Officer"
+
+class CitizenApprovalSchema(BaseModel):
+    approved: bool
+    citizen_id: Optional[str] = None

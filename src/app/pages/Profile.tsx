@@ -631,7 +631,187 @@ export default function Profile() {
   );
 
   const isAdmin = user.role === "official" || user.role === "ward";
+  const isEmployee = user.role === "field_employee";
 
+  // ── FIELD EMPLOYEE PROFILE VIEW ──────────────────────────────────────────────
+  if (isEmployee) {
+    const empAvatarUrl =
+      user.photoURL ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=10B981&color=fff&size=100`;
+
+    const officerName = user.name || "";
+    const myAssigned = issues.filter(i => {
+      if (i.status === "resolved") return false;
+      if (!i.assignedTeam) return true;
+      if (typeof i.assignedTeam === "string") return true;
+      return i.assignedTeam.officerNames?.some(n => officerName.toLowerCase().includes(n.toLowerCase()) || n.toLowerCase().includes("rajesh"));
+    });
+    const myCompleted = issues.filter(i => i.status === "resolved");
+    const pendingProofs = myAssigned.filter(i => !i.siteArrivalProof || !i.resolutionProof);
+
+    return (
+      <div style={{ minHeight: "100vh", paddingTop: "5.5rem", paddingBottom: "3rem", fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 1.5rem" }}>
+          
+          {/* Employee Header Card */}
+          <div style={{
+            background: "linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(37,99,235,0.08) 100%)",
+            border: "1px solid rgba(16,185,129,0.3)", borderRadius: 20,
+            padding: "2rem", marginBottom: "1.5rem", position: "relative", overflow: "hidden",
+          }}>
+            <div style={{ position: "absolute", top: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(16,185,129,0.06)" }} />
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", position: "relative", zIndex: 2, flexWrap: "wrap" }}>
+              <div style={{ position: "relative" }}>
+                <img src={empAvatarUrl} alt={user.name}
+                  style={{ width: 84, height: 84, borderRadius: 18, objectFit: "cover", border: "3px solid rgba(16,185,129,0.6)", boxShadow: "0 0 20px rgba(16,185,129,0.25)" }} />
+                <div style={{
+                  position: "absolute", bottom: -6, right: -6, width: 24, height: 24,
+                  background: "linear-gradient(135deg, #10B981, #059669)", borderRadius: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, border: "2px solid #050816",
+                }}>👷</div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
+                  <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, fontWeight: 700, color: "#fff", margin: 0 }}>
+                    {user.name}
+                  </h1>
+                  <span style={{
+                    padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                    background: "rgba(16,185,129,0.2)", color: "#34d399",
+                    border: "1px solid rgba(16,185,129,0.35)", textTransform: "uppercase", letterSpacing: "0.5px",
+                  }}>
+                    Field Officer / Response Team
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", margin: "0 0 8px" }}>{user.email}</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", display: "flex", alignItems: "center", gap: 5 }}>
+                    🛡️ {user.ward || "Field Operations Squad"}
+                  </span>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", display: "flex", alignItems: "center", gap: 5 }}>
+                    📅 Active Duty
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => setEditProfileOpen(true)}
+                  style={{
+                    padding: "8px 14px", borderRadius: 10, background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.15)", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 6
+                  }}
+                >
+                  <Edit3 size={13} /> Edit
+                </button>
+                <button
+                  onClick={async () => { await logout(); navigate("/", { replace: true }); }}
+                  style={{
+                    padding: "8px 14px", borderRadius: 10, background: "rgba(239,68,68,0.12)",
+                    border: "1px solid rgba(239,68,68,0.25)", color: "#f87171", fontSize: 12, fontWeight: 600, cursor: "pointer"
+                  }}
+                >
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Employee Key Operational Metrics */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: "1.5rem" }}>
+            {[
+              { label: "Active Assigned Tasks", value: myAssigned.length, icon: "📋", color: "#60a5fa" },
+              { label: "Pending Proof Submissions", value: pendingProofs.length, icon: "📸", color: "#fb923c" },
+              { label: "Resolved Complaints", value: myCompleted.length, icon: "✅", color: "#34d399" },
+              { label: "Field Duty Status", value: "On Shift", icon: "🟢", color: "#10b981" },
+            ].map((stat) => (
+              <div key={stat.label} style={{
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 14, padding: "16px 18px",
+              }}>
+                <div style={{ fontSize: 22, marginBottom: 8 }}>{stat.icon}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: stat.color, fontFamily: "'Space Grotesk', sans-serif" }}>
+                  {stat.value}
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {stat.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Assigned Field Duties List */}
+          <div style={{
+            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 16, overflow: "hidden", marginBottom: "1.5rem",
+          }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                <Clock size={16} color="#34d399" /> Current Field Tasks
+              </h3>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{myAssigned.length} Assigned</span>
+            </div>
+
+            {myAssigned.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+                No active complaints assigned to your squad right now.
+              </div>
+            ) : (
+              myAssigned.map(issue => (
+                <div key={issue.id} style={{
+                  display: "flex", alignItems: "center", gap: 14, padding: "14px 20px",
+                  borderBottom: "1px solid rgba(255,255,255,0.03)",
+                }}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: "50%", flexShrink: 0,
+                    background: issue.siteArrivalProof ? "#34d399" : "#60a5fa",
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>
+                      {issue.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>
+                      📍 {issue.location} · SLA: {issue.slaHours || 24}h
+                    </div>
+                  </div>
+                  <a
+                    href="/employee"
+                    style={{
+                      padding: "6px 12px", borderRadius: 8, background: "rgba(16,185,129,0.15)",
+                      border: "1px solid rgba(16,185,129,0.3)", color: "#34d399", fontSize: 11, fontWeight: 600, textDecoration: "none"
+                    }}
+                  >
+                    Open Task
+                  </a>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Quick Action Banner */}
+          <a href="/employee" style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 22px",
+            background: "linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.1))",
+            border: "1px solid rgba(16,185,129,0.3)", borderRadius: 16, textDecoration: "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ fontSize: 24 }}>👷‍♂️</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#34d399" }}>Go to Field Officer Portal</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>Upload site arrival & resolution photo proofs</div>
+              </div>
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Open Portal →</span>
+          </a>
+
+        </div>
+      </div>
+    );
+  }
 
   // ── ADMIN PROFILE VIEW ───────────────────────────────────────────────────────
   if (isAdmin) {

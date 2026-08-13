@@ -5,6 +5,7 @@ import { useApp } from "../context/AppContext";
 import { ThreeCity } from "../components/ThreeCity";
 import { ThreeGlobe } from "../components/ThreeGlobe";
 import { AreaChartComponent, CivicHealthGauge, DensityHeatmap } from "../components/Charts";
+import ScrollExpandMedia from "../../components/ui/scroll-expansion-hero";
 import {
   PlusCircle,
   MapPin,
@@ -563,7 +564,7 @@ export default function Dashboard() {
   return (
     <div
       onMouseMove={handleMouseMove}
-      className="min-h-screen bg-[#050816] text-slate-100 flex flex-col overflow-x-hidden selection:bg-cyan-500/20 selection:text-cyan-300 font-sans pt-16"
+      className="min-h-screen bg-[#050816] text-slate-100 flex flex-col overflow-x-hidden selection:bg-cyan-500/20 selection:text-cyan-300 font-sans"
     >
       <div className="fixed top-0 inset-x-0 h-[600px] bg-gradient-to-b from-blue-950/20 via-cyan-950/5 to-transparent pointer-events-none z-0" />
       <div className="fixed -top-40 -left-40 w-96 h-96 bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none z-0" />
@@ -573,43 +574,54 @@ export default function Dashboard() {
         style={{ backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`, backgroundSize: "40px 40px" }}
       />
 
-      <main className="flex-1 relative z-10 py-8 pb-32 max-w-7xl w-full mx-auto px-4 md:px-8 space-y-12">
-
-        {/* Hero */}
-        <div className="relative min-h-[520px] rounded-3xl overflow-hidden border border-white/5 bg-slate-950/20 backdrop-blur-3xl flex flex-col lg:flex-row items-center justify-between p-8 md:p-12 gap-8 shadow-2xl">
-          <div className="max-w-xl space-y-6 relative z-10 text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-400/20">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-              <span className="font-mono text-[9px] font-bold text-cyan-300 uppercase tracking-widest">SYSTEM ONLINE: DISTRICT SECTOR-12</span>
-            </div>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-white leading-tight font-sans">
-              Building <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500">Smarter Cities</span> Together
-            </h1>
-            <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-md mx-auto lg:mx-0">
-              Report civic issues. Track real-time progress. Transform community zones through direct collaborative governance metrics and gamified milestones.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 items-center justify-center lg:justify-start">
-              <Link
-                to="/report"
-                className="magnetic-button w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] flex items-center justify-center gap-2 text-sm transition-all active:scale-95 cursor-pointer"
+      <main className="flex-1 relative z-10 w-full">
+        {/* Full-Page Interactive Scroll Expansion Hero & Content Wrapper */}
+        <ScrollExpandMedia
+          mediaType="video"
+          mediaSrc="https://me7aitdbxq.ufs.sh/f/2wsMIGDMQRdYuZ5R8ahEEZ4aQK56LizRdfBSqeDMsmUIrJN1"
+          posterSrc="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=1280&auto=format&fit=crop"
+          bgImageSrc="https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=2000&q=80"
+          title="Building Smarter Cities"
+          date="Urban Eye Intelligence"
+          scrollToExpand="Scroll down to expand Dashboard"
+          textBlend
+        >
+          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-16 pb-32 space-y-12 w-full">
+            {/* Hero Card */}
+            <div className="relative min-h-[420px] rounded-3xl overflow-hidden border border-white/10 bg-slate-950/80 backdrop-blur-3xl flex flex-col lg:flex-row items-center justify-between p-8 md:p-12 gap-8 shadow-2xl">
+              <div className="max-w-xl space-y-6 relative z-10 text-center lg:text-left">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-400/20">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                  <span className="font-mono text-[9px] font-bold text-cyan-300 uppercase tracking-widest">SYSTEM ONLINE: DISTRICT SECTOR-12</span>
+                </div>
+                <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-white leading-tight font-sans">
+                  Building <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500">Smarter Cities</span> Together
+                </h1>
+                <p className="text-sm md:text-base text-slate-300 leading-relaxed max-w-md mx-auto lg:mx-0">
+                  Report civic issues. Track real-time progress. Transform community zones through direct collaborative governance metrics and gamified milestones.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-center lg:justify-start">
+                  <Link
+                    to="/report"
+                    className="magnetic-button w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] flex items-center justify-center gap-2 text-sm transition-all active:scale-95 cursor-pointer"
+                  >
+                    <PlusCircle className="w-4.5 h-4.5" /> Report Issue
+                  </Link>
+                  <button
+                    onClick={() => document.getElementById("charts-command-center")?.scrollIntoView({ behavior: "smooth" })}
+                    className="w-full sm:w-auto px-6 py-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                  >
+                    <LayoutDashboard className="w-4.5 h-4.5 text-slate-400" /> Explore Dashboard
+                  </button>
+                </div>
+              </div>
+              <div
+                className="w-full lg:w-[480px] h-[320px] md:h-[380px] rounded-2xl overflow-hidden border border-white/10 bg-[#030510]/50 relative flex items-center justify-center"
+                style={{ transform: `translate3d(${mousePos.x}px, ${mousePos.y}px, 0)` }}
               >
-                <PlusCircle className="w-4.5 h-4.5" /> Report Issue
-              </Link>
-              <button
-                onClick={() => document.getElementById("charts-command-center")?.scrollIntoView({ behavior: "smooth" })}
-                className="w-full sm:w-auto px-6 py-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
-              >
-                <LayoutDashboard className="w-4.5 h-4.5 text-slate-400" /> Explore Dashboard
-              </button>
+                <ThreeCity />
+              </div>
             </div>
-          </div>
-          <div
-            className="w-full lg:w-[480px] h-[320px] md:h-[380px] rounded-2xl overflow-hidden border border-white/10 bg-[#030510]/50 relative flex items-center justify-center"
-            style={{ transform: `translate3d(${mousePos.x}px, ${mousePos.y}px, 0)` }}
-          >
-            <ThreeCity />
-          </div>
-        </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -743,6 +755,8 @@ export default function Dashboard() {
               ))}
           </div>
         </div>
+        </div>
+        </ScrollExpandMedia>
       </main>
     </div>
   );

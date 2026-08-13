@@ -259,7 +259,8 @@ export default function EmployeePortal() {
                           } else {
                             setSelectedIssueId(issue.id);
                             setActiveFormType("arrival");
-                            setImageUrl("");
+                            setProofFile(null);
+                            setProofPreview("");
                           }
                         }}
                         style={{
@@ -283,7 +284,8 @@ export default function EmployeePortal() {
                           } else {
                             setSelectedIssueId(issue.id);
                             setActiveFormType("resolution");
-                            setImageUrl("");
+                            setProofFile(null);
+                            setProofPreview("");
                           }
                         }}
                         style={{

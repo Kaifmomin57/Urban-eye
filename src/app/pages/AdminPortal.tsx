@@ -112,7 +112,7 @@ function SLACountdown({ deadline }: { deadline: string }) {
 
 // ─── Main Admin Portal ──────────────────────────────────────────────────
 export default function AdminPortal() {
-  const { user, issues, selectedCity, setSelectedCity, roster, assignTeamToIssue, updateOfficerStatus, loading } = useApp();
+  const { user, issues, selectedCity, setSelectedCity, roster, assignTeamToIssue, updateOfficerStatus, addOfficer, updateOfficer, loading } = useApp();
   const [activeTab, setActiveTab] = useState<AdminTab>("analyzer");
   const [selectedDossier, setSelectedDossier] = useState<AIComplaintDossier | null>(null);
   const [dispatchingIssueId, setDispatchingIssueId] = useState<string | null>(null);
@@ -121,6 +121,20 @@ export default function AdminPortal() {
   const [aiReportTitle, setAiReportTitle] = useState<string | undefined>(undefined);
   const [aiReportsFilter, setAiReportsFilter] = useState<"all" | "critical" | "high" | "medium" | "low">("all");
   const [aiReportsStatusFilter, setAiReportsStatusFilter] = useState<"all" | "new" | "in_progress" | "resolved">("all");
+
+  // Roster Management Modal state
+  const [officerModalOpen, setOfficerModalOpen] = useState(false);
+  const [editingOfficerId, setEditingOfficerId] = useState<string | null>(null);
+  const [officerForm, setOfficerForm] = useState({
+    name: "",
+    department: "Public Works",
+    role: "Senior Engineer",
+    phone: "",
+    city: selectedCity || "Mumbai",
+    status: "on_shift" as "on_shift" | "off_duty" | "on_leave",
+    shiftStart: "08:00",
+    shiftEnd: "16:00"
+  });
 
   // ── ALL hooks must be called unconditionally (Rules of Hooks) ──
   // Run AI analysis whenever city or issues change
@@ -440,19 +454,44 @@ export default function AdminPortal() {
               background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
               borderRadius: 16, overflow: "hidden",
             }}>
-              <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <h3 style={{ fontSize: 15, fontWeight: 600, color: "#fff", margin: 0 }}>
-                  <Users size={15} style={{ display: "inline", marginRight: 8, verticalAlign: "middle" }} />
-                  {selectedCity} Municipal Workforce
-                </h3>
-                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "4px 0 0" }}>
-                  Manage officer shifts, status, and availability. This data is private and not visible to citizens.
-                </p>
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 600, color: "#fff", margin: 0 }}>
+                    <Users size={15} style={{ display: "inline", marginRight: 8, verticalAlign: "middle" }} />
+                    {selectedCity} Municipal Workforce
+                  </h3>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "4px 0 0" }}>
+                    Manage officer shifts, status, departments, and availability. This data is private and not visible to citizens.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingOfficerId(null);
+                    setOfficerForm({
+                      name: "",
+                      department: "Public Works",
+                      role: "Field Officer",
+                      phone: "",
+                      city: selectedCity || "Mumbai",
+                      status: "on_shift",
+                      shiftStart: "08:00",
+                      shiftEnd: "16:00"
+                    });
+                    setOfficerModalOpen(true);
+                  }}
+                  style={{
+                    padding: "8px 14px", borderRadius: 8, background: "linear-gradient(135deg, #2563EB, #1D4ED8)",
+                    color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 6, fontFamily: "'Inter', sans-serif"
+                  }}
+                >
+                  <UserCheck size={14} /> + Add Officer
+                </button>
               </div>
 
               {/* Officer Table Header */}
               <div style={{
-                display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",
+                display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 0.8fr 0.8fr 1.2fr",
                 gap: 8, padding: "10px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)",
                 fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.3)",
                 textTransform: "uppercase", letterSpacing: "0.5px",
@@ -462,7 +501,7 @@ export default function AdminPortal() {
                 <span>Shift</span>
                 <span>Tasks</span>
                 <span>Status</span>
-                <span>Action</span>
+                <span>Action / Edit</span>
               </div>
 
               {roster
@@ -471,7 +510,7 @@ export default function AdminPortal() {
                   const statusStyle = STATUS_COLORS[officer.status] || STATUS_COLORS.off_duty;
                   return (
                     <div key={officer.id} style={{
-                      display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 0.8fr 0.8fr 1fr",
+                      display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 0.8fr 0.8fr 1.2fr",
                       gap: 8, padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)",
                       alignItems: "center",
                     }}>
@@ -506,21 +545,47 @@ export default function AdminPortal() {
                         {officer.status.replace("_", " ")}
                       </span>
 
-                      {/* Status Toggle */}
-                      <select
-                        value={officer.status}
-                        onChange={(e) => updateOfficerStatus(officer.id, e.target.value as any)}
-                        style={{
-                          appearance: "none", background: "rgba(255,255,255,0.05)",
-                          border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
-                          color: "#fff", fontSize: 11, padding: "5px 8px", cursor: "pointer",
-                          fontFamily: "'Inter', sans-serif", outline: "none",
-                        }}
-                      >
-                        <option value="on_shift" style={{ background: "#0b1228" }}>On Shift</option>
-                        <option value="off_duty" style={{ background: "#0b1228" }}>Off Duty</option>
-                        <option value="on_leave" style={{ background: "#0b1228" }}>On Leave</option>
-                      </select>
+                      {/* Status Toggle + Edit Button */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <select
+                          value={officer.status}
+                          onChange={(e) => updateOfficerStatus(officer.id, e.target.value as any)}
+                          style={{
+                            appearance: "none", background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
+                            color: "#fff", fontSize: 11, padding: "5px 8px", cursor: "pointer",
+                            fontFamily: "'Inter', sans-serif", outline: "none", flex: 1
+                          }}
+                        >
+                          <option value="on_shift" style={{ background: "#0b1228" }}>On Shift</option>
+                          <option value="off_duty" style={{ background: "#0b1228" }}>Off Duty</option>
+                          <option value="on_leave" style={{ background: "#0b1228" }}>On Leave</option>
+                        </select>
+
+                        <button
+                          onClick={() => {
+                            setEditingOfficerId(officer.id);
+                            setOfficerForm({
+                              name: officer.name,
+                              department: officer.department,
+                              role: officer.role,
+                              phone: officer.phone || "",
+                              city: officer.city,
+                              status: officer.status,
+                              shiftStart: officer.shiftStart,
+                              shiftEnd: officer.shiftEnd
+                            });
+                            setOfficerModalOpen(true);
+                          }}
+                          style={{
+                            padding: "4px 8px", borderRadius: 6, background: "rgba(255,255,255,0.08)",
+                            border: "1px solid rgba(255,255,255,0.15)", color: "#94a3b8", fontSize: 11,
+                            cursor: "pointer", fontFamily: "'Inter', sans-serif"
+                          }}
+                        >
+                          Edit
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1108,6 +1173,141 @@ export default function AdminPortal() {
         })()}
 
       </div>
+
+      {/* ── Add / Edit Officer Roster Modal ── */}
+      {officerModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(5,8,22,0.8)", backdropFilter: "blur(8px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+        }}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            style={{
+              background: "#0B1020", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 20, width: "100%", maxWidth: 500, padding: 24,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.6)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>
+                {editingOfficerId ? "✏️ Edit Employee Roster Record" : "👤 Add New Response Officer"}
+              </h3>
+              <button
+                onClick={() => setOfficerModalOpen(false)}
+                style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 18 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (editingOfficerId) {
+                updateOfficer(editingOfficerId, officerForm);
+                showNotification(`Updated officer record for ${officerForm.name}`);
+              } else {
+                addOfficer(officerForm);
+                showNotification(`Added new officer ${officerForm.name} to ${officerForm.city} Roster`);
+              }
+              setOfficerModalOpen(false);
+            }} style={{ display: "grid", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Officer Full Name</label>
+                <input
+                  type="text" required value={officerForm.name}
+                  onChange={e => setOfficerForm({ ...officerForm, name: e.target.value })}
+                  placeholder="e.g. Inspector Ramesh Kulkarni"
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 13, outline: "none" }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Department</label>
+                  <select
+                    value={officerForm.department}
+                    onChange={e => setOfficerForm({ ...officerForm, department: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#0B1020", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  >
+                    <option value="Public Works">Public Works</option>
+                    <option value="Water & Power">Water & Power</option>
+                    <option value="Traffic & Safety">Traffic & Safety</option>
+                    <option value="Sanitation & Bio-Hazard">Sanitation & Bio-Hazard</option>
+                    <option value="Parks & Amenities">Parks & Amenities</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Designation / Role</label>
+                  <input
+                    type="text" required value={officerForm.role}
+                    onChange={e => setOfficerForm({ ...officerForm, role: e.target.value })}
+                    placeholder="e.g. Senior Road Engineer"
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Shift Start Time</label>
+                  <input
+                    type="time" value={officerForm.shiftStart}
+                    onChange={e => setOfficerForm({ ...officerForm, shiftStart: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Shift End Time</label>
+                  <input
+                    type="time" value={officerForm.shiftEnd}
+                    onChange={e => setOfficerForm({ ...officerForm, shiftEnd: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Duty Status</label>
+                  <select
+                    value={officerForm.status}
+                    onChange={e => setOfficerForm({ ...officerForm, status: e.target.value as any })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#0B1020", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  >
+                    <option value="on_shift">On Shift</option>
+                    <option value="off_duty">Off Duty</option>
+                    <option value="on_leave">On Leave</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4, fontWeight: 600 }}>Assigned City</label>
+                  <select
+                    value={officerForm.city}
+                    onChange={e => setOfficerForm({ ...officerForm, city: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: "#0B1020", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", fontSize: 12, outline: "none" }}
+                  >
+                    <option value="Mumbai">Mumbai</option>
+                    <option value="Pune">Pune</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                style={{
+                  marginTop: 10, padding: "12px 20px", borderRadius: 10,
+                  background: "linear-gradient(135deg, #2563EB, #1D4ED8)", color: "#fff",
+                  fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer"
+                }}
+              >
+                {editingOfficerId ? "Save Officer Updates" : "Add Officer to Roster"}
+              </button>
+            </form>
+          </motion.div>
+        </div>
+      )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>

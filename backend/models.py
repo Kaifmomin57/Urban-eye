@@ -56,6 +56,10 @@ class DBIssue(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Field officer proof submissions
+    site_arrival_proof = Column(JSON, nullable=True)   # {imageUrl, lat, lng, locationName, arrivedAt, arrivedBy}
+    resolution_proof = Column(JSON, nullable=True)      # {imageUrl, lat, lng, locationName, resolvedAt, resolvedBy, approvedByCitizen}
+
 class DBNotification(Base):
     __tablename__ = "notifications"
 
