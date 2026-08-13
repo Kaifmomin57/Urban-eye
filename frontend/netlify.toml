@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Set VITE_API_URL in Netlify Site Configuration -> Environment Variables
+# Example: VITE_API_URL = "https://urban-eye-backend.onrender.com"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+

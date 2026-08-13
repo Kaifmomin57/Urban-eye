@@ -119,10 +119,13 @@ app = FastAPI(
 )
 
 # CORS configuration for Vite frontend
+cors_env = os.getenv("CORS_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in cors_env.split(",") if origin.strip()] if cors_env != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=allowed_origins,
+    allow_credentials=True if allowed_origins != ["*"] else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -141,7 +144,7 @@ async def root():
         "app": "Urban Eye Real-time Backend",
         "database": "PostgreSQL",
         "ai_engine": "Google Gemini Vision",
-        "websocket": "ws://localhost:8000/ws/{user_id}"
+        "websocket": "/ws/{user_id}"
     }
 
 @app.get("/notifications")

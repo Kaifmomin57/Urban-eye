@@ -7,6 +7,7 @@ import {
 import { useApp } from "../context/AppContext";
 import AIDossierModal from "../components/AIDossierModal";
 import { generateSingleDossier, AIComplaintDossier } from "../lib/aiAnalyzerService";
+import { apiClient } from "../lib/apiClient";
 
 export default function EmployeePortal() {
   const { user, issues, notifications, submitSiteArrivalProof, submitResolutionProof, loading } = useApp();
@@ -85,11 +86,10 @@ export default function EmployeePortal() {
       // Upload image file to backend and get URL
       let finalImageUrl = proofPreview; // fallback: base64 preview
       try {
-        const fd = new FormData();
-        fd.append("image", proofFile);
-        const uploadRes = await fetch(`http://localhost:8000/upload`, { method: "POST", body: fd });
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
+        if (proofFile) {
+          const fd = new FormData();
+          fd.append("image", proofFile);
+          const uploadData = await apiClient.postFormData("/upload", fd);
           finalImageUrl = uploadData.url || uploadData.imageUrl || proofPreview;
         }
       } catch {

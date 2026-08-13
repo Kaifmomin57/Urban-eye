@@ -1,9 +1,11 @@
+import { getWsBaseUrl } from "./apiClient";
+
 type MessageHandler = (data: any) => void;
 
 class RealtimeWebSocketClient {
   private socket: WebSocket | null = null;
   private listeners: Set<MessageHandler> = new Set();
-  private userId: str = "anonymous";
+  private userId: string = "anonymous";
   private isConnecting: boolean = false;
   private reconnectInterval: any = null;
 
@@ -15,7 +17,8 @@ class RealtimeWebSocketClient {
 
     this.isConnecting = true;
     try {
-      this.socket = new WebSocket(`ws://localhost:8000/ws/${this.userId}`);
+      const wsBase = getWsBaseUrl();
+      this.socket = new WebSocket(`${wsBase}/ws/${this.userId}`);
 
       this.socket.onopen = () => {
         console.log(`[Realtime WS] Connected for user: ${this.userId}`);

@@ -22,3 +22,5 @@ services:
         sync: false
       - key: CLOUDINARY_URL
         sync: false
+      - key: CORS_ORIGINS
+        sync: false   # e.g., https://your-frontend.netlify.app or *

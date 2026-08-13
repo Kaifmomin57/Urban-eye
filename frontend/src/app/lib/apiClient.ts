@@ -1,4 +1,11 @@
-const API_BASE = "http://localhost:8000";
+export const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
+
+export const getWsBaseUrl = (): string => {
+  if (API_BASE.startsWith("https://")) {
+    return API_BASE.replace("https://", "wss://");
+  }
+  return API_BASE.replace("http://", "ws://");
+};
 
 export const apiClient = {
   get: async (endpoint: string) => {

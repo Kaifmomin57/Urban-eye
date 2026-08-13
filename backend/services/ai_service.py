@@ -265,10 +265,8 @@ async def analyze_issue_with_ai(image_bytes: bytes | None, description: str, cat
 
     # Confirmed working models for this API key (tested 2026-08)
     GEMINI_MODELS = [
-        "gemini-flash-latest",    # Best: always points to latest flash
         "gemini-3.5-flash",       # Fallback 1: fast & capable
         "gemini-3.1-flash-lite",  # Fallback 2: lightweight
-        "gemini-3-flash-preview", # Fallback 3: preview
     ]
 
     # Build parts for the new SDK
