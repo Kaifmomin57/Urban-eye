@@ -3,7 +3,6 @@ import json
 import warnings
 from io import BytesIO
 from PIL import Image
-from ultralytics import YOLO
 from google import genai
 from google.genai import types
 
@@ -23,7 +22,12 @@ def get_yolo_model(model_name: str):
     """
     Loads and caches the specified YOLO model.
     """
+    if os.getenv("DISABLE_YOLO", "false").lower() == "true":
+        return None
+
+    global YOLO_MODELS
     if model_name not in YOLO_MODELS:
+        from ultralytics import YOLO  # Defer import to conserve memory when YOLO is disabled
         backend_dir = os.path.dirname(os.path.dirname(__file__))
         model_path = os.path.join(backend_dir, "yolomodels", model_name)
         if os.path.exists(model_path):
@@ -59,7 +63,7 @@ GENERAL_URBAN_CLASSES = {
     61: "dining table",
 }
 
-def run_yolo_detection(image_bytes: bytes, category: str) -> list:
+def run_yolo_detection(image_bytes: bytes, category: str) -> tuple:
     """
     Smart dual-model YOLO detection:
     1. Always runs general YOLOv8n model (detects cars, people, traffic lights etc.)
@@ -67,11 +71,15 @@ def run_yolo_detection(image_bytes: bytes, category: str) -> list:
     3. Merges results, filters below CONFIDENCE_THRESHOLD to avoid false positives
     4. If specialized model finds nothing, general model results are the fallback
     """
+    if os.getenv("DISABLE_YOLO", "false").lower() == "true":
+        print("[YOLO] Detection bypassed due to DISABLE_YOLO=true")
+        return [], None
+
     try:
         image = Image.open(BytesIO(image_bytes))
     except Exception as e:
         print(f"[YOLO Error] Cannot open image: {e}")
-        return []
+        return [], None
 
     all_detections = []
 

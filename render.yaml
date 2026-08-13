@@ -32,3 +32,6 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false   # e.g., https://your-frontend.netlify.app or *
+      - key: DISABLE_YOLO
+        value: "true" # Disable heavy local YOLO model loading on CPU to fit within 512MB RAM limit
+
