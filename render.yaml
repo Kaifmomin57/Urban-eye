@@ -1,3 +1,9 @@
+databases:
+  - name: urban-eye-db
+    databaseName: urban_eye
+    user: postgres
+    plan: free
+
 services:
   - type: web
     name: urban-eye-backend
@@ -9,7 +15,9 @@ services:
     startCommand: gunicorn main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
     envVars:
       - key: DATABASE_URL
-        sync: false   # Set this manually in Render dashboard
+        fromDatabase:
+          name: urban-eye-db
+          property: connectionString
       - key: SECRET_KEY
         sync: false   # Set this manually in Render dashboard
       - key: GEMINI_API_KEY

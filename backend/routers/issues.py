@@ -4,6 +4,7 @@ import shutil
 import httpx
 import cloudinary
 import cloudinary.uploader
+from dotenv import load_dotenv
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -15,17 +16,35 @@ from schemas import IssueStatusUpdateSchema, IssueAssignTeamSchema, IssueFlagSch
 from services.ai_service import analyze_issue_with_ai
 from services.websocket_manager import ws_manager
 
+load_dotenv()
+
 router = APIRouter(prefix="/issues", tags=["Issues"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Configure Cloudinary with credentials from environment
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", ""),
-    api_key=os.getenv("CLOUDINARY_API_KEY", ""),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET", "")
-)
+cloudinary_url = os.getenv("CLOUDINARY_URL")
+if cloudinary_url:
+    try:
+        url_body = cloudinary_url.replace("cloudinary://", "")
+        credentials, cloud_name = url_body.split("@")
+        api_key, api_secret = credentials.split(":")
+        cloudinary.config(
+            cloud_name=cloud_name.strip(),
+            api_key=api_key.strip(),
+            api_secret=api_secret.strip(),
+            secure=True
+        )
+    except Exception as e:
+        print(f"[Cloudinary Init Warning] Failed to parse CLOUDINARY_URL: {e}")
+else:
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", ""),
+        api_key=os.getenv("CLOUDINARY_API_KEY", ""),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET", ""),
+        secure=True
+    )
 
 @router.get("")
 async def get_all_issues(city: Optional[str] = None, db: AsyncSession = Depends(get_db)):
