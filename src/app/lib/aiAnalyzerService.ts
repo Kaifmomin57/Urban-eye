@@ -29,6 +29,7 @@ export interface AIComplaintDossier {
   citizenImpactScore: number; // 1-100
   recommendedAction: string;
   generatedAt: string;
+  yoloDetections?: { class: string; confidence: number }[];
 }
 
 export interface IssueCluster {
@@ -81,19 +82,21 @@ export function generateSingleDossier(issue: Issue, city: string = "Mumbai"): AI
     location: issue.location,
     category: issue.category,
     duplicateCount: 1,
-    aiScore: score,
-    priorityLevel,
-    suggestedSlaHours,
-    summary: `AI Intelligence Analysis detected report in ${issue.location}, ${city} regarding ${issue.category.toLowerCase()}. Total community upvotes: ${issue.votes || 0}.`,
+    aiScore: issue.aiPriorityScore || score,
+    priorityLevel: (issue.priority as any) || priorityLevel,
+    suggestedSlaHours: issue.slaHours || suggestedSlaHours,
+    summary: issue.aiSummary || `AI Intelligence Analysis detected report in ${issue.location}, ${city} regarding ${issue.category.toLowerCase()}. Total community upvotes: ${issue.votes || 0}.`,
     riskAssessment:
-      priorityLevel === "critical"
+      issue.aiRiskAssessment ||
+      (priorityLevel === "critical"
         ? "CRITICAL HAZARD: High risk of severe infrastructure disruption, public safety risk, or property damage. Immediate dispatch required."
         : priorityLevel === "high"
         ? "HIGH RISK: Moderate disruption to daily ward activities. Resolution required within 12-hour window to prevent escalation."
-        : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable.",
-    citizenImpactScore: Math.min(95, Math.max(30, score + 10)),
-    recommendedAction: `Dispatch ${issue.category} Response Squad immediately. Contact ward officer for verification.`,
+        : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable."),
+    citizenImpactScore: Math.min(95, Math.max(30, (issue.aiPriorityScore || score) + 10)),
+    recommendedAction: issue.recommendedAction || `Dispatch ${issue.category} Response Squad immediately. Contact ward officer for verification.`,
     generatedAt: new Date().toISOString(),
+    yoloDetections: issue.yoloDetections || [],
   };
 }
 
@@ -211,24 +214,27 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
       location: primary.location,
       category: primary.category,
       duplicateCount,
-      aiScore: score,
-      priorityLevel,
-      suggestedSlaHours,
-      summary: `AI Intelligence Analysis detected ${duplicateCount} citizen report(s) in ${primary.location}, ${city} regarding ${primary.category.toLowerCase()}. Total community upvotes: ${totalVotes}.`,
+      aiScore: primary.aiPriorityScore || score,
+      priorityLevel: (primary.priority as any) || priorityLevel,
+      suggestedSlaHours: primary.slaHours || suggestedSlaHours,
+      summary: primary.aiSummary || `AI Intelligence Analysis detected ${duplicateCount} citizen report(s) in ${primary.location}, ${city} regarding ${primary.category.toLowerCase()}. Total community upvotes: ${totalVotes}.`,
       riskAssessment:
-        priorityLevel === "critical"
+        primary.aiRiskAssessment ||
+        (priorityLevel === "critical"
           ? "CRITICAL HAZARD: High risk of severe infrastructure disruption, public safety risk, or property damage. Immediate dispatch required."
           : priorityLevel === "high"
           ? "HIGH RISK: Moderate disruption to daily ward activities. Resolution required within 12-hour window to prevent escalation."
-          : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable.",
-      citizenImpactScore: Math.min(98, Math.max(20, score + duplicateCount * 5)),
+          : "STANDARD RISK: Non-emergency civic maintenance item. Routine dispatch schedule applicable."),
+      citizenImpactScore: Math.min(98, Math.max(20, (primary.aiPriorityScore || score) + duplicateCount * 5)),
       recommendedAction:
-        priorityLevel === "critical"
+        primary.recommendedAction ||
+        (priorityLevel === "critical"
           ? "IMMEDIATE DISPATCH: Deploy Quick Response Emergency Squad within 4 hours."
           : priorityLevel === "high"
           ? "PRIORITY ASSIGNMENT: Assign ward engineer squad within 12 hours."
-          : "SCHEDULED MAINTENANCE: Queue for next scheduled ward maintenance cycle.",
+          : "SCHEDULED MAINTENANCE: Queue for next scheduled ward maintenance cycle."),
       generatedAt: new Date().toISOString(),
+      yoloDetections: primary.yoloDetections || [],
     };
 
     idx++;
@@ -250,9 +256,105 @@ export function analyzeCityIssues(city: string = "Mumbai", allIssues: Issue[] = 
 }
 
 /**
- * AI Smart Team Dispatcher
- * Selects optimal available officers on shift matching the issue's department.
+ * ─── AI Smart Dispatch Engine v2 ────────────────────────────────────────────
+ *
+ * Makes dispatch decisions based on:
+ *  1. Issue category  → target department
+ *  2. Description + title keyword scan → role affinity score per officer
+ *  3. Officer availability (on_shift only)
+ *  4. Workload balancing (lowest activeAssignments first)
+ *  5. Priority urgency factor (critical = needs highest-ranked role)
  */
+
+// Keyword → role skill tags
+const KEYWORD_ROLE_MAP: { keywords: string[]; roleTags: string[]; dept?: string }[] = [
+  // Water / Sewage / Drainage
+  {
+    keywords: ["water", "pipe", "leak", "flood", "sewage", "drain", "manhole", "overflow", "waterlogging", "pipeline", "burst"],
+    roleTags: ["hydraulic", "utilities", "water", "plumb"],
+    dept: "Water & Power",
+  },
+  // Electricity / Power
+  {
+    keywords: ["electric", "power", "light", "streetlight", "wire", "cable", "transformer", "outage", "electr"],
+    roleTags: ["electric", "power", "utilities"],
+    dept: "Water & Power",
+  },
+  // Roads / Pothole / Infrastructure
+  {
+    keywords: ["road", "pothole", "bridge", "crack", "pavement", "footpath", "sidewalk", "tarmac", "construction", "excavat"],
+    roleTags: ["road", "engineer", "infrastructure", "works", "supervisor"],
+    dept: "Public Works",
+  },
+  // Traffic / Signals / Accidents
+  {
+    keywords: ["traffic", "signal", "accident", "vehicle", "junction", "zebra", "crossing", "speed", "parking"],
+    roleTags: ["traffic", "safety", "lead"],
+    dept: "Traffic & Safety",
+  },
+  // Safety / Hazard / Emergency
+  {
+    keywords: ["hazard", "danger", "unsafe", "fire", "gas", "chemical", "collapse", "structure", "wall", "building"],
+    roleTags: ["safety", "supervisor", "lead", "emergency"],
+    dept: "Traffic & Safety",
+  },
+  // Garbage / Sanitation / Waste
+  {
+    keywords: ["garbage", "waste", "trash", "sanit", "litter", "dump", "smell", "odor", "bio", "dead animal", "rot"],
+    roleTags: ["environ", "sanit", "bio"],
+    dept: "Sanitation & Bio-Hazard",
+  },
+  // Parks / Public spaces
+  {
+    keywords: ["park", "garden", "tree", "bench", "playground", "amenit", "civic", "public space", "fountain"],
+    roleTags: ["civic", "parks", "maintenance"],
+    dept: "Parks & Amenities",
+  },
+];
+
+// Priority → urgency label + preferred role seniority keywords
+const PRIORITY_URGENCY: Record<string, { label: string; seniorityKeywords: string[] }> = {
+  critical: { label: "EMERGENCY RESPONSE", seniorityKeywords: ["captain", "inspector", "senior", "lead", "supervisor"] },
+  high:     { label: "PRIORITY DISPATCH",  seniorityKeywords: ["inspector", "senior", "lead", "supervisor"] },
+  medium:   { label: "STANDARD DISPATCH",  seniorityKeywords: ["officer", "engineer", "specialist"] },
+  low:      { label: "ROUTINE DISPATCH",   seniorityKeywords: ["officer", "engineer", "maintenance"] },
+};
+
+/**
+ * Scores an officer against a keyword context derived from the issue.
+ * Returns 0–100 based on role keyword matches.
+ */
+function scoreOfficer(
+  officer: CityRosterOfficer,
+  roleTags: string[],
+  seniorityKeywords: string[]
+): number {
+  const roleLower = officer.role.toLowerCase();
+  const nameLower = officer.name.toLowerCase();
+  const deptLower = officer.department.toLowerCase();
+
+  let score = 0;
+
+  // Role tag matching (main signal)
+  for (const tag of roleTags) {
+    if (roleLower.includes(tag.toLowerCase()) || deptLower.includes(tag.toLowerCase())) {
+      score += 30;
+    }
+  }
+
+  // Seniority bonus
+  for (const keyword of seniorityKeywords) {
+    if (roleLower.includes(keyword) || nameLower.includes(keyword)) {
+      score += 20;
+    }
+  }
+
+  // Workload penalty — more assignments = lower preference
+  score -= officer.activeAssignments * 10;
+
+  return Math.max(0, score);
+}
+
 export function suggestResponseTeam(
   issue: Issue,
   roster: CityRosterOfficer[]
@@ -260,14 +362,36 @@ export function suggestResponseTeam(
   teamName: string;
   recommendedOfficers: CityRosterOfficer[];
   reason: string;
+  matchedKeywords: string[];
+  urgencyLabel: string;
+  roleMatchDetail: { officerName: string; role: string; score: number }[];
 } {
-  const city = issue.city || "Mumbai";
-  const cityRoster = roster.filter((o) => o.city.toLowerCase() === city.toLowerCase());
+  const city = (issue.city || "Mumbai").toLowerCase();
+  const priority = issue.aiPriorityLevel || issue.priority || "medium";
+  const urgency = PRIORITY_URGENCY[priority] || PRIORITY_URGENCY.medium;
 
-  // Filter officers on shift
-  const onShift = cityRoster.filter((o) => o.status === "on_shift");
+  // Build search corpus from title + description + tags
+  const corpus = [
+    issue.title || "",
+    issue.description || "",
+    issue.category || "",
+    ...(issue.tags || []),
+  ].join(" ").toLowerCase();
 
-  // Map issue category to department
+  // Step 1: Keyword scan → determine department & keywords
+  const contextScores: { entry: typeof KEYWORD_ROLE_MAP[0]; hits: string[]; score: number }[] = [];
+
+  for (const entry of KEYWORD_ROLE_MAP) {
+    const hits = entry.keywords.filter(kw => corpus.includes(kw.toLowerCase()));
+    if (hits.length > 0) {
+      contextScores.push({ entry, hits, score: hits.length });
+    }
+  }
+
+  contextScores.sort((a, b) => b.score - a.score);
+  const topContext = contextScores[0];
+
+  // Category → Department fallback
   const categoryDeptMap: Record<string, string> = {
     Infrastructure: "Public Works",
     Utilities: "Water & Power",
@@ -277,31 +401,78 @@ export function suggestResponseTeam(
     Traffic: "Traffic & Safety",
   };
 
-  const targetDept = categoryDeptMap[issue.category] || "Public Works";
+  const targetDept = topContext?.entry.dept || categoryDeptMap[issue.category] || "Public Works";
+  const roleTags = topContext?.entry.roleTags || ["engineer", "officer"];
+  const matchedKeywords = topContext?.hits || [issue.category?.toLowerCase() || "general"];
 
-  // Match department officers first
-  let deptOfficers = onShift.filter((o) => o.department === targetDept);
+  // Step 2: Filter STRICTLY to city + on_shift + EXACT DEPARTMENT match
+  const cityOnShift = roster.filter(
+    o => o.city.toLowerCase() === city && o.status === "on_shift"
+  );
 
-  // If no department officers on shift, fallback to any available on shift officers
-  if (deptOfficers.length === 0) {
-    deptOfficers = onShift;
+  let deptOfficers = cityOnShift.filter(
+    o => o.department.toLowerCase() === targetDept.toLowerCase()
+  );
+
+  // If no officer in exact department is on shift, fallback to any on-shift officer in the city
+  const usedFallbackDept = deptOfficers.length === 0;
+  if (usedFallbackDept) {
+    deptOfficers = cityOnShift;
   }
 
-  // Sort by lowest active assignments
-  deptOfficers.sort((a, b) => a.activeAssignments - b.activeAssignments);
+  // Step 3: Score matching department officers
+  const scored = deptOfficers.map(o => ({
+    officer: o,
+    score: scoreOfficer(o, roleTags, urgency.seniorityKeywords),
+  }));
 
-  const selected = deptOfficers.slice(0, 2);
+  // Sort by role match score desc, then activeAssignments asc
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.officer.activeAssignments - b.officer.activeAssignments;
+  });
 
-  const squadNames = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Falcon", "Guardian"];
-  const squadIndex = Math.abs(issue.id.charCodeAt(issue.id.length - 1) || 0) % squadNames.length;
-  const teamName = `${targetDept} Squad ${squadNames[squadIndex]}`;
+  const pickCount = priority === "critical" ? 3 : 2;
+  const selected = scored.slice(0, pickCount).map(s => s.officer);
+
+  const roleMatchDetail = scored.map(s => ({
+    officerName: s.officer.name,
+    role: s.officer.role,
+    score: s.score,
+  }));
+
+  // Step 4: Generate team name
+  const squadNames = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Falcon", "Guardian", "Hawk"];
+  const squadIndex = Math.abs((issue.id?.charCodeAt(issue.id.length - 1) || 0)) % squadNames.length;
+  const deptShort = targetDept.split(" ")[0];
+  const teamName = `${deptShort} ${urgency.label.split(" ")[0]} Squad ${squadNames[squadIndex]}`;
+
+  // Step 5: Build natural language reasoning
+  let reason = "";
+  if (selected.length === 0) {
+    reason = `⚠️ No officers currently on shift in ${targetDept}. Please adjust shift roster or call off-duty backup.`;
+  } else {
+    const keywordList = matchedKeywords.slice(0, 3).join(", ");
+    const topOfficer = selected[0];
+
+    reason =
+      `🎯 Strict Department Match: Matched to ${targetDept} based on issue category (${issue.category}) & detected keywords ("${keywordList}"). ` +
+      `Primary: ${topOfficer.name} (${topOfficer.role}) from ${topOfficer.department} — ` +
+      (topOfficer.activeAssignments === 0
+        ? "free with 0 active tasks. "
+        : `assigned (${topOfficer.activeAssignments} active task(s)). `) +
+      (selected.length > 1
+        ? `Backup: ${selected[1].name} (${selected[1].role}) from ${selected[1].department}. `
+        : "") +
+      `Priority: ${priority.toUpperCase()}.`;
+  }
 
   return {
     teamName,
     recommendedOfficers: selected,
-    reason:
-      selected.length > 0
-        ? `AI matched ${selected.length} on-shift officer(s) from ${targetDept} based on current shift timetable and lowest workload.`
-        : "No officers currently on shift in this department. Please adjust shift roster or select off-duty backup.",
+    reason,
+    matchedKeywords,
+    urgencyLabel: urgency.label,
+    roleMatchDetail,
   };
 }

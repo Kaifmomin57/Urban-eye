@@ -2,15 +2,16 @@ import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Brain, Shield, Users, Clock, AlertTriangle, ChevronDown,
-  Zap, FileText, CheckCircle, XCircle, UserCheck, Calendar,
-  TrendingUp, ArrowUpRight, Bell, RefreshCw, Eye,
+  Zap, FileText, CheckCircle, UserCheck, Calendar, TrendingUp,
+  ArrowUpRight, Bell, RefreshCw, Eye, Cpu, Image as ImageIcon,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { analyzeCityIssues, suggestResponseTeam } from "../lib/aiAnalyzerService";
 import type { AIComplaintDossier, IssueCluster } from "../lib/aiAnalyzerService";
 import AIDossierModal from "../components/AIDossierModal";
+import AIReportModal from "../components/AIReportModal";
 
-type AdminTab = "analyzer" | "roster" | "dispatch" | "sla";
+type AdminTab = "analyzer" | "roster" | "dispatch" | "sla" | "ai_reports";
 
 const CITIES = ["Mumbai", "Pune"];
 
@@ -116,6 +117,10 @@ export default function AdminPortal() {
   const [selectedDossier, setSelectedDossier] = useState<AIComplaintDossier | null>(null);
   const [dispatchingIssueId, setDispatchingIssueId] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+  const [aiReportIssueId, setAiReportIssueId] = useState<string | null>(null);
+  const [aiReportTitle, setAiReportTitle] = useState<string | undefined>(undefined);
+  const [aiReportsFilter, setAiReportsFilter] = useState<"all" | "critical" | "high" | "medium" | "low">("all");
+  const [aiReportsStatusFilter, setAiReportsStatusFilter] = useState<"all" | "new" | "in_progress" | "resolved">("all");
 
   // Roster Management Modal state
   const [officerModalOpen, setOfficerModalOpen] = useState(false);
@@ -258,6 +263,13 @@ export default function AdminPortal() {
         <AIDossierModal dossier={selectedDossier} onClose={() => setSelectedDossier(null)} />
       )}
 
+      {/* AI Report Modal */}
+      <AIReportModal
+        issueId={aiReportIssueId}
+        issueTitle={aiReportTitle}
+        onClose={() => { setAiReportIssueId(null); setAiReportTitle(undefined); }}
+      />
+
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 1.5rem" }}>
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
@@ -318,6 +330,7 @@ export default function AdminPortal() {
           <TabButton active={activeTab === "roster"} icon={<Users size={15} />} label="Workforce Roster" onClick={() => setActiveTab("roster")} />
           <TabButton active={activeTab === "dispatch"} icon={<Zap size={15} />} label="Smart Dispatch" onClick={() => setActiveTab("dispatch")} />
           <TabButton active={activeTab === "sla"} icon={<Clock size={15} />} label="SLA Monitor" badge={slaAlertCount} onClick={() => setActiveTab("sla")} />
+          <TabButton active={activeTab === "ai_reports"} icon={<Cpu size={15} />} label="AI Reports" badge={issues.filter(i => (i.city || "Mumbai").toLowerCase() === selectedCity.toLowerCase()).length} onClick={() => setActiveTab("ai_reports")} />
         </div>
 
         {/* ─── TAB 1: AI ANALYZER ──────────────────────────────────────── */}
@@ -652,29 +665,57 @@ export default function AdminPortal() {
                         background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.12)",
                         borderRadius: 10, padding: "12px 14px", marginBottom: 12,
                       }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                          <Brain size={12} style={{ color: "#60a5fa" }} />
-                          <span style={{ fontSize: 11, fontWeight: 600, color: "#60a5fa", textTransform: "uppercase", letterSpacing: "0.5px" }}>AI Recommendation</span>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Brain size={13} style={{ color: "#60a5fa" }} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "#60a5fa", textTransform: "uppercase", letterSpacing: "0.5px" }}>AI Smart Dispatch</span>
+                          </div>
+                          {recommendation.urgencyLabel && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 12,
+                              background: "rgba(239,68,68,0.15)", color: "#ff6b6b", border: "1px solid rgba(239,68,68,0.3)",
+                              fontFamily: "'Space Grotesk', monospace"
+                            }}>
+                              ⚡ {recommendation.urgencyLabel}
+                            </span>
+                          )}
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", marginBottom: 4 }}>
+
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 4 }}>
                           {recommendation.teamName}
                         </div>
-                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>
+
+                        {recommendation.matchedKeywords && recommendation.matchedKeywords.length > 0 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>Detected Signals:</span>
+                            {recommendation.matchedKeywords.map((kw, i) => (
+                              <span key={i} style={{
+                                fontSize: 9, fontFamily: "monospace", padding: "1px 6px", borderRadius: 4,
+                                background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)"
+                              }}>
+                                #{kw}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", lineHeight: 1.5, marginBottom: 10 }}>
                           {recommendation.reason}
                         </div>
+
                         {recommendation.recommendedOfficers.length > 0 && (
-                          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             {recommendation.recommendedOfficers.map((off) => (
                               <div key={off.id} style={{
-                                display: "flex", alignItems: "center", gap: 6,
-                                background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: "5px 10px",
-                                border: "1px solid rgba(255,255,255,0.06)",
+                                display: "flex", alignItems: "center", gap: 8,
+                                background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: "6px 12px",
+                                border: "1px solid rgba(255,255,255,0.08)",
                               }}>
                                 <img src={off.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(off.name)}&size=32`} alt={off.name}
-                                  style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover" }} />
+                                  style={{ width: 26, height: 26, borderRadius: "50%", objectFit: "cover" }} />
                                 <div>
-                                  <div style={{ fontSize: 11, fontWeight: 500, color: "#fff" }}>{off.name}</div>
-                                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.35)" }}>{off.department}</div>
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: "#fff" }}>{off.name}</div>
+                                  <div style={{ fontSize: 10, color: "#60a5fa", fontWeight: 500 }}>{off.role} · {off.department}</div>
                                 </div>
                               </div>
                             ))}
@@ -857,6 +898,280 @@ export default function AdminPortal() {
             </div>
           </motion.div>
         )}
+
+        {/* ─── TAB 5: AI REPORTS ───────────────────────────────────────── */}
+        {activeTab === "ai_reports" && (() => {
+          const cityIssues = issues.filter(i =>
+            (i.city || "Mumbai").toLowerCase() === selectedCity.toLowerCase()
+          );
+          const filtered = cityIssues.filter(i => {
+            const pMatch = aiReportsFilter === "all" || (i.aiPriorityLevel || i.priority) === aiReportsFilter;
+            const sMatch = aiReportsStatusFilter === "all" || i.status === aiReportsStatusFilter;
+            return pMatch && sMatch;
+          });
+
+          return (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+              {/* Header + Filters */}
+              <div style={{
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 16, overflow: "hidden",
+              }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 600, color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                        <Cpu size={15} style={{ color: "#a78bfa" }} />
+                        AI-Powered Issue Reports — {selectedCity}
+                      </h3>
+                      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", margin: "4px 0 0" }}>
+                        {filtered.length} issue(s) · Click "View AI Report" to see full YOLO + Gemini analysis
+                      </p>
+                    </div>
+                    {/* Filters */}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {(["all", "critical", "high", "medium", "low"] as const).map(p => (
+                        <button key={p} onClick={() => setAiReportsFilter(p)} style={{
+                          padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "'Inter', sans-serif",
+                          background: aiReportsFilter === p
+                            ? p === "critical" ? "rgba(239,68,68,0.25)" : p === "high" ? "rgba(249,115,22,0.25)" : p === "medium" ? "rgba(234,179,8,0.2)" : p === "low" ? "rgba(100,116,139,0.2)" : "rgba(59,130,246,0.2)"
+                            : "rgba(255,255,255,0.04)",
+                          color: aiReportsFilter === p
+                            ? p === "critical" ? "#ff6b6b" : p === "high" ? "#fb923c" : p === "medium" ? "#facc15" : p === "low" ? "#94a3b8" : "#60a5fa"
+                            : "rgba(255,255,255,0.4)",
+                          border: aiReportsFilter === p
+                            ? p === "critical" ? "1px solid rgba(239,68,68,0.4)" : p === "high" ? "1px solid rgba(249,115,22,0.4)" : p === "medium" ? "1px solid rgba(234,179,8,0.4)" : p === "low" ? "1px solid rgba(100,116,139,0.3)" : "1px solid rgba(59,130,246,0.4)"
+                            : "1px solid rgba(255,255,255,0.06)",
+                          textTransform: "capitalize",
+                        }}>{p}</button>
+                      ))}
+                      <div style={{ width: 1, background: "rgba(255,255,255,0.08)", margin: "0 2px" }} />
+                      {(["all", "new", "in_progress", "resolved"] as const).map(s => (
+                        <button key={s} onClick={() => setAiReportsStatusFilter(s)} style={{
+                          padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                          cursor: "pointer", fontFamily: "'Inter', sans-serif",
+                          background: aiReportsStatusFilter === s ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.04)",
+                          color: aiReportsStatusFilter === s ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                          border: aiReportsStatusFilter === s ? "1px solid rgba(139,92,246,0.4)" : "1px solid rgba(255,255,255,0.06)",
+                          textTransform: "capitalize",
+                        }}>{s.replace("_", " ")}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Issue Grid */}
+                {filtered.length === 0 ? (
+                  <div style={{ padding: 48, textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+                    <Cpu size={28} style={{ margin: "0 auto 12px", display: "block", opacity: 0.3 }} />
+                    No issues match the selected filters for {selectedCity}.
+                  </div>
+                ) : (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+                    gap: 16, padding: 20,
+                  }}>
+                    {filtered.map((issue) => {
+                      const pColors = PRIORITY_COLORS[issue.aiPriorityLevel || issue.priority] || PRIORITY_COLORS.medium;
+                      const statusColor = issue.status === "resolved" ? "#34d399" : issue.status === "in_progress" ? "#60a5fa" : issue.status === "new" ? "#fb923c" : "#94a3b8";
+                      const statusBg = issue.status === "resolved" ? "rgba(16,185,129,0.1)" : issue.status === "in_progress" ? "rgba(59,130,246,0.1)" : issue.status === "new" ? "rgba(249,115,22,0.1)" : "rgba(100,116,139,0.1)";
+                      const statusBorder = issue.status === "resolved" ? "rgba(16,185,129,0.25)" : issue.status === "in_progress" ? "rgba(59,130,246,0.25)" : issue.status === "new" ? "rgba(249,115,22,0.25)" : "rgba(100,116,139,0.2)";
+
+                      return (
+                        <motion.div
+                          key={issue.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          whileHover={{ y: -2, boxShadow: `0 12px 40px rgba(0,0,0,0.4), ${pColors.glow}` }}
+                          transition={{ duration: 0.25 }}
+                          style={{
+                            background: "rgba(255,255,255,0.025)",
+                            border: `1px solid rgba(255,255,255,0.07)`,
+                            borderRadius: 14, overflow: "hidden",
+                            cursor: "default",
+                            transition: "all 0.25s",
+                          }}
+                        >
+                          {/* Thumbnail */}
+                          <div style={{ position: "relative", width: "100%", height: 160, background: "#060d1f", overflow: "hidden" }}>
+                            {issue.image ? (
+                              <img
+                                src={issue.image}
+                                alt={issue.title}
+                                style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.85 }}
+                              />
+                            ) : (
+                              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <ImageIcon size={28} style={{ color: "rgba(255,255,255,0.15)" }} />
+                              </div>
+                            )}
+                            {/* Gradient overlay */}
+                            <div style={{
+                              position: "absolute", inset: 0,
+                              background: "linear-gradient(to top, rgba(6,13,31,0.85) 0%, transparent 60%)",
+                            }} />
+                            {/* Priority badge floating on image */}
+                            <span style={{
+                              position: "absolute", top: 10, left: 10,
+                              padding: "3px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+                              textTransform: "uppercase", letterSpacing: "0.5px",
+                              background: pColors.bg, color: pColors.text, border: `1px solid ${pColors.border}`,
+                              backdropFilter: "blur(8px)",
+                            }}>
+                              {issue.aiPriorityLevel || issue.priority}
+                            </span>
+                            {/* AI score */}
+                            {issue.aiPriorityScore && (
+                              <span style={{
+                                position: "absolute", top: 10, right: 10,
+                                fontSize: 11, fontWeight: 700, color: pColors.text,
+                                background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)",
+                                padding: "3px 8px", borderRadius: 8,
+                                fontFamily: "'Space Grotesk', monospace",
+                                border: `1px solid ${pColors.border}`,
+                              }}>
+                                ⚡ {issue.aiPriorityScore}
+                              </span>
+                            )}
+                            {/* YOLO detections floating at bottom of image */}
+                            {issue.yoloDetections && issue.yoloDetections.length > 0 && (
+                              <div style={{
+                                position: "absolute", bottom: 8, left: 8, right: 8,
+                                display: "flex", flexWrap: "wrap", gap: 5,
+                              }}>
+                                {issue.yoloDetections.slice(0, 4).map((det, i) => (
+                                  <span key={i} style={{
+                                    fontSize: 9, fontWeight: 600, fontFamily: "monospace",
+                                    padding: "2px 7px", borderRadius: 10,
+                                    background: "rgba(34,211,238,0.15)",
+                                    color: "#22d3ee",
+                                    border: "1px solid rgba(34,211,238,0.25)",
+                                    backdropFilter: "blur(6px)",
+                                    textTransform: "capitalize",
+                                  }}>
+                                    🎯 {det.class} {Math.round(det.confidence * 100)}%
+                                  </span>
+                                ))}
+                                {issue.yoloDetections.length > 4 && (
+                                  <span style={{
+                                    fontSize: 9, fontWeight: 600, fontFamily: "monospace",
+                                    padding: "2px 7px", borderRadius: 10,
+                                    background: "rgba(255,255,255,0.08)",
+                                    color: "rgba(255,255,255,0.5)",
+                                    border: "1px solid rgba(255,255,255,0.12)",
+                                  }}>
+                                    +{issue.yoloDetections.length - 4} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Body */}
+                          <div style={{ padding: "14px 16px" }}>
+                            {/* Title + Status */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", lineHeight: 1.4, flex: 1 }}>
+                                {issue.title}
+                              </div>
+                              <span style={{
+                                fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
+                                background: statusBg, color: statusColor, border: `1px solid ${statusBorder}`,
+                                textTransform: "capitalize", whiteSpace: "nowrap", flexShrink: 0,
+                              }}>
+                                {issue.status.replace("_", " ")}
+                              </span>
+                            </div>
+
+                            {/* Meta: location · category */}
+                            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginBottom: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              <span>📍 {issue.location}</span>
+                              <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+                              <span>{issue.category}</span>
+                              {issue.assignedTeam && (
+                                <>
+                                  <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+                                  <span style={{ color: "#34d399" }}>👥 Assigned</span>
+                                </>
+                              )}
+                            </div>
+
+                            {/* AI Summary snippet */}
+                            {issue.aiSummary && (
+                              <div style={{
+                                fontSize: 11, color: "rgba(255,255,255,0.45)", lineHeight: 1.5,
+                                marginBottom: 10, display: "-webkit-box",
+                                WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                                background: "rgba(139,92,246,0.05)",
+                                border: "1px solid rgba(139,92,246,0.1)",
+                                borderRadius: 8, padding: "8px 10px",
+                              }}>
+                                🤖 {issue.aiSummary}
+                              </div>
+                            )}
+
+                            {/* No AI data yet */}
+                            {!issue.aiSummary && (
+                              <div style={{
+                                fontSize: 11, color: "rgba(255,255,255,0.25)", lineHeight: 1.5,
+                                marginBottom: 10,
+                                background: "rgba(255,255,255,0.02)",
+                                border: "1px solid rgba(255,255,255,0.05)",
+                                borderRadius: 8, padding: "8px 10px",
+                                fontStyle: "italic",
+                              }}>
+                                AI report will be generated from full backend analysis.
+                              </div>
+                            )}
+
+                            {/* Divider */}
+                            <div style={{ height: 1, background: "rgba(255,255,255,0.05)", marginBottom: 10 }} />
+
+                            {/* Footer: View AI Report button */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>
+                                {issue.id}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setAiReportIssueId(issue.id);
+                                  setAiReportTitle(issue.title);
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 6,
+                                  padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                                  background: "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(59,130,246,0.18))",
+                                  border: "1px solid rgba(139,92,246,0.35)",
+                                  color: "#a78bfa", fontSize: 12, fontWeight: 600,
+                                  fontFamily: "'Inter', sans-serif",
+                                  transition: "all 0.2s",
+                                }}
+                                onMouseEnter={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = "linear-gradient(135deg, rgba(139,92,246,0.3), rgba(59,130,246,0.3))";
+                                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(139,92,246,0.6)";
+                                }}
+                                onMouseLeave={e => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = "linear-gradient(135deg, rgba(139,92,246,0.18), rgba(59,130,246,0.18))";
+                                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(139,92,246,0.35)";
+                                }}
+                              >
+                                <Cpu size={13} />
+                                View AI Report
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          );
+        })()}
+
       </div>
 
       {/* ── Add / Edit Officer Roster Modal ── */}

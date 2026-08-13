@@ -125,6 +125,40 @@ export default function AIDossierModal({ dossier, onClose }: AIDossierModalProps
               </div>
             </div>
 
+            {/* YOLO Computer Vision Detections */}
+            {dossier.yoloDetections && dossier.yoloDetections.length > 0 && (
+              <div style={{
+                background: "rgba(6,182,212,0.06)", border: "1px solid rgba(6,182,212,0.15)",
+                borderRadius: 12, padding: "14px 16px", marginBottom: 12,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#22d3ee", textTransform: "uppercase", letterSpacing: "0.5px" }}>🤖 YOLO Computer Vision Detections</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {dossier.yoloDetections.map((det, index) => (
+                    <span
+                      key={index}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        background: "rgba(6,182,212,0.1)",
+                        border: "1px solid rgba(6,182,212,0.25)",
+                        fontSize: 11,
+                        color: "#22d3ee",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      <strong>{det.class}</strong>
+                      <span style={{ opacity: 0.6 }}>{Math.round(det.confidence * 100)}% Match</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* AI Summary */}
             <div style={{
               background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)",

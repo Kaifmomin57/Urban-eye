@@ -243,6 +243,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       upvotedBy: raw.upvotedBy || [],
       siteArrivalProof: raw.siteArrivalProof || undefined,
       resolutionProof: raw.resolutionProof || undefined,
+      yoloDetections: raw.yoloDetections || [],
+      aiSummary: raw.aiSummary || "",
+      aiRiskAssessment: raw.aiRiskAssessment || "",
+      recommendedAction: raw.recommendedAction || "",
     };
   }
 

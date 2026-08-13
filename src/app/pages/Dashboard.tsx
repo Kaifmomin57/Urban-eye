@@ -354,6 +354,19 @@ const LocalIssueCard: React.FC<IssueCardProps> = ({ issue }) => {
               {issue.title}
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">{issue.description}</p>
+            {issue.yoloDetections && issue.yoloDetections.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {issue.yoloDetections.map((det, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium font-mono bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 shadow-sm"
+                  >
+                    <span>🤖 {det.class}</span>
+                    <span className="opacity-60">{Math.round(det.confidence * 100)}%</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Progress Tracker */}

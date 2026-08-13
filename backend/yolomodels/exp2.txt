@@ -1,0 +1,16 @@
+import urllib.request
+from ultralytics import YOLO
+
+# 1. Pretrained Number Plate YOLOv8 Model Weight URL
+url = "https://github.com/computervisioneng/automatic-number-plate-recognition-python-yolov8/raw/main/license_plate_detector.pt"
+model_filename = "license_plate_detector.pt"
+
+print("Downloading Number Plate Detector Model...")
+urllib.request.urlretrieve(url, model_filename)
+print("Download Complete! Saved as:", model_filename)
+
+# 2. Model Load karo
+plate_model = YOLO(model_filename)
+
+# 3. Test Run (Image me se number plate ki location nikalne ke liye)
+results = plate_model("car_image.jpg", show=True)

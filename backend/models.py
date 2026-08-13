@@ -49,6 +49,9 @@ class DBIssue(Base):
     ai_risk_assessment = Column(Text, nullable=True)
     citizen_impact_score = Column(Integer, default=50)
     recommended_action = Column(Text, nullable=True)
+    ai_full_report = Column(Text, nullable=True)
+    ai_annotated_image_url = Column(String, nullable=True)
+    yolo_detections = Column(JSON, default=list) # List of detected objects with confidence
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
