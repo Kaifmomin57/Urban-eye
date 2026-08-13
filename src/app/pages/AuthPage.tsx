@@ -97,9 +97,9 @@ function FieldInput({ icon, type = "text", placeholder, value, onChange }: {
         <i className={`ti ${icon}`} aria-hidden="true" />
       </span>
       <input type={type} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)}
-        style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, color: "#fff", fontSize: 14, fontFamily: "'Inter',sans-serif", padding: "11px 12px 11px 38px", outline: "none" }}
-        onFocus={e => { e.target.style.borderColor = "rgba(30,107,230,0.6)"; e.target.style.background = "rgba(30,107,230,0.05)"; }}
-        onBlur={e  => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.background = "rgba(255,255,255,0.05)"; }}
+        style={{ width: "100%", background: "rgba(15,23,42,0.65)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, color: "#fff", fontSize: 14, fontFamily: "'Inter',sans-serif", padding: "11px 12px 11px 38px", outline: "none", transition: "all 0.2s ease" }}
+        onFocus={e => { e.target.style.borderColor = "rgba(30,107,230,0.8)"; e.target.style.background = "rgba(15,23,42,0.85)"; e.target.style.boxShadow = "0 0 16px rgba(30,107,230,0.3)"; }}
+        onBlur={e  => { e.target.style.borderColor = "rgba(255,255,255,0.14)"; e.target.style.background = "rgba(15,23,42,0.65)"; e.target.style.boxShadow = "none"; }}
       />
     </div>
   );
@@ -615,29 +615,31 @@ export default function AuthPage() {
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "2.5rem 2rem", background: pageBg, overflow: "hidden", position: "relative", transition: "background 0.35s ease" }}>
-        {/* 3D Testimonials Marquee — subtle background */}
-        <div style={{ position: "absolute", inset: 0, opacity: 0.2, zIndex: 0 }}>
+        {/* 3D Testimonials Marquee — vivid background animation */}
+        <div style={{ position: "absolute", inset: 0, opacity: 0.7, zIndex: 0 }}>
           <DemoOne />
         </div>
 
-        {/* Frosted glass backdrop for form readability */}
+        {/* Frosted glass backdrop for form readability — light tint only */}
         <div style={{
           position: "absolute", inset: 0, zIndex: 1,
-          background: "linear-gradient(160deg, rgba(5,8,22,0.65) 0%, rgba(10,15,40,0.75) 100%)",
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
+          background: "linear-gradient(160deg, rgba(2,4,14,0.28) 0%, rgba(5,10,28,0.35) 100%)",
+          backdropFilter: "blur(0px)",
+          WebkitBackdropFilter: "blur(0px)",
         }} />
 
         <div style={{ width: "100%", maxWidth: 360, position: "relative", zIndex: 2,
-          background: "rgba(255,255,255,0.03)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-          border: "1px solid rgba(255,255,255,0.07)",
+          background: isBlueSteel ? "rgba(255,255,255,0.88)" : "rgba(12, 20, 48, 0.60)",
+          backdropFilter: "blur(28px)",
+          WebkitBackdropFilter: "blur(28px)",
+          border: isBlueSteel ? "1px solid rgba(56,73,89,0.25)" : "1px solid rgba(255,255,255,0.22)",
           borderRadius: 18,
           padding: "2rem 1.75rem",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)"
+          boxShadow: isBlueSteel
+            ? "0 12px 48px rgba(0,0,0,0.15)"
+            : "0 20px 60px rgba(0,0,0,0.55), 0 0 40px rgba(30,107,230,0.2), inset 0 1px 0 rgba(255,255,255,0.2), inset 0 0 80px rgba(30,107,230,0.04)"
         }}>
-          <div style={{ display: "flex", background: isBlueSteel ? "rgba(56,73,89,0.10)" : "rgba(255,255,255,0.05)", borderRadius: 10, padding: 4, marginBottom: "2rem", border: isBlueSteel ? "1px solid rgba(56,73,89,0.18)" : "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ display: "flex", background: isBlueSteel ? "rgba(56,73,89,0.12)" : "rgba(255,255,255,0.08)", borderRadius: 10, padding: 4, marginBottom: "2rem", border: isBlueSteel ? "1px solid rgba(56,73,89,0.25)" : "1px solid rgba(255,255,255,0.15)" }}>
             <button onClick={() => setTab("login")}
               style={{ flex: 1, padding: "8px 0", fontSize: 12, fontWeight: 500, border: "none", background: tab === "login" ? (isBlueSteel ? "#384959" : "#1E6BE6") : "none", color: tab === "login" ? (isBlueSteel ? "#BDDDFC" : "#fff") : "rgba(255,255,255,0.4)", borderRadius: 7, cursor: "pointer", transition: "all 0.2s", fontFamily: "'Inter',sans-serif" }}>
               Sign in
